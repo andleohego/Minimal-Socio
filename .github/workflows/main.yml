@@ -1,4 +1,4 @@
-name: Compilar Minimal Socio
+name: Compilar Minimal Socio v2
 
 on:
   workflow_dispatch:
@@ -30,9 +30,10 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Crear proyecto Android
+      - name: Crear proyecto Android v2
         shell: bash
         run: |
+          rm -rf app build.gradle settings.gradle gradle.properties
           mkdir -p app/src/main/java/cl/andres/minimalsocio
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
@@ -84,13 +85,26 @@ jobs:
                   applicationId "cl.andres.minimalsocio"
                   minSdk 26
                   targetSdk 35
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 20
+                  versionName "2.0"
+              }
+
+              signingConfigs {
+                  personal {
+                      storeFile file('minimal-socio-release.jks')
+                      storePassword 'MinimalSocio2026'
+                      keyAlias 'minimalsocio'
+                      keyPassword 'MinimalSocio2026'
+                  }
               }
 
               buildTypes {
+                  debug {
+                      signingConfig signingConfigs.personal
+                  }
                   release {
                       minifyEnabled false
+                      signingConfig signingConfigs.personal
                   }
               }
 
@@ -100,6 +114,12 @@ jobs:
               }
           }
           EOF
+
+          cat > app/minimal-socio-release.b64 <<'EOF'
+          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
+          EOF
+          tr -d '[:space:]' < app/minimal-socio-release.b64 | base64 --decode > app/minimal-socio-release.jks
+          rm app/minimal-socio-release.b64
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
@@ -111,7 +131,6 @@ jobs:
           <resources>
               <color name="black">#000000</color>
               <color name="white">#FFFFFF</color>
-              <color name="gray">#AFAFAF</color>
           </resources>
           EOF
 
@@ -197,6 +216,16 @@ jobs:
                           <category android:name="android.intent.category.DEFAULT" />
                       </intent-filter>
                   </activity>
+
+                  <service
+                      android:name=".NotificationFilterService"
+                      android:exported="true"
+                      android:label="Filtro de notificaciones Minimal Socio"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
+                  </service>
               </application>
           </manifest>
           EOF
@@ -217,12 +246,14 @@ jobs:
           import android.graphics.Typeface;
           import android.os.Bundle;
           import android.os.Handler;
+          import android.os.Looper;
           import android.provider.Settings;
           import android.text.Editable;
           import android.text.TextWatcher;
           import android.view.Gravity;
           import android.view.View;
           import android.view.inputmethod.InputMethodManager;
+          import android.widget.Button;
           import android.widget.EditText;
           import android.widget.LinearLayout;
           import android.widget.ScrollView;
@@ -237,11 +268,16 @@ jobs:
           import java.util.HashSet;
           import java.util.List;
           import java.util.Locale;
-          import java.util.Map;
           import java.util.Set;
 
           public class MainActivity extends Activity {
-              private final Handler clockHandler = new Handler();
+              private static final String PREFS = "minimal_socio";
+
+              private static final int PROFILE_WORK = 0;
+              private static final int PROFILE_REST = 1;
+              private static final int PROFILE_ALL = 2;
+
+              private final Handler handler = new Handler(Looper.getMainLooper());
               private final List<AppEntry> allApps = new ArrayList<>();
 
               private LinearLayout appList;
@@ -249,17 +285,28 @@ jobs:
               private TextView clockView;
               private TextView dateView;
               private TextView profileView;
+              private TextView focusView;
+              private TextView notificationsView;
 
               private SharedPreferences prefs;
               private Set<String> favorites;
               private Set<String> hidden;
-              private boolean workMode = true;
+              private Set<String> delayed;
+              private Set<String> focusBlocked;
+              private Set<String> mutedNotifications;
+              private Set<String> workAdded;
+              private Set<String> workRemoved;
+              private Set<String> restAdded;
+              private Set<String> restRemoved;
+
+              private int activeProfile;
+              private boolean focusMode;
 
               private final Runnable clockTick = new Runnable() {
                   @Override
                   public void run() {
                       updateClock();
-                      clockHandler.postDelayed(this, 30000);
+                      handler.postDelayed(this, 30_000);
                   }
               };
 
@@ -267,9 +314,19 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  prefs = getSharedPreferences("minimal_socio", MODE_PRIVATE);
-                  favorites = new HashSet<>(prefs.getStringSet("favorites", new HashSet<>()));
-                  hidden = new HashSet<>(prefs.getStringSet("hidden", new HashSet<>()));
+                  prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                  favorites = readSet("favorites");
+                  hidden = readSet("hidden");
+                  delayed = readSet("delayed");
+                  focusBlocked = readSet("focus_blocked");
+                  mutedNotifications = readSet("muted_notifications");
+                  workAdded = readSet("work_added");
+                  workRemoved = readSet("work_removed");
+                  restAdded = readSet("rest_added");
+                  restRemoved = readSet("rest_removed");
+
+                  activeProfile = prefs.getInt("active_profile", PROFILE_WORK);
+                  focusMode = prefs.getBoolean("focus_mode", false);
 
                   getWindow().setStatusBarColor(Color.BLACK);
                   getWindow().setNavigationBarColor(Color.BLACK);
@@ -277,13 +334,15 @@ jobs:
                   buildInterface();
                   loadApplications();
                   refreshList("");
-                  clockHandler.post(clockTick);
+                  handler.post(clockTick);
               }
 
               @Override
               protected void onResume() {
                   super.onResume();
                   if (appList != null) {
+                      mutedNotifications = readSet("muted_notifications");
+                      updateNotificationButton();
                       loadApplications();
                       refreshList(searchBox == null ? "" : searchBox.getText().toString());
                   }
@@ -291,14 +350,19 @@ jobs:
 
               @Override
               protected void onDestroy() {
-                  clockHandler.removeCallbacks(clockTick);
+                  handler.removeCallbacks(clockTick);
                   super.onDestroy();
+              }
+
+              private Set<String> readSet(String key) {
+                  Set<String> stored = prefs.getStringSet(key, Collections.emptySet());
+                  return stored == null ? new HashSet<>() : new HashSet<>(stored);
               }
 
               private void buildInterface() {
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
-                  root.setPadding(dp(22), dp(18), dp(22), dp(12));
+                  root.setPadding(dp(20), dp(14), dp(20), dp(10));
                   root.setBackgroundColor(Color.BLACK);
 
                   clockView = text("", 48, Color.WHITE, Typeface.BOLD);
@@ -307,8 +371,8 @@ jobs:
                   dateView = text("", 16, Color.LTGRAY, Typeface.NORMAL);
                   root.addView(dateView);
 
-                  TextView title = text("Minimal Socio", 22, Color.WHITE, Typeface.BOLD);
-                  title.setPadding(0, dp(22), 0, dp(4));
+                  TextView title = text("Minimal Socio", 23, Color.WHITE, Typeface.BOLD);
+                  title.setPadding(0, dp(18), 0, dp(2));
                   root.addView(title);
 
                   TextView credit = text("Desarrollado para Andrés Herrera G.", 13, Color.GRAY, Typeface.NORMAL);
@@ -316,31 +380,22 @@ jobs:
 
                   LinearLayout controls = new LinearLayout(this);
                   controls.setOrientation(LinearLayout.HORIZONTAL);
-                  controls.setPadding(0, dp(16), 0, dp(10));
+                  controls.setPadding(0, dp(14), 0, dp(8));
 
-                  profileView = text("TRABAJO", 14, Color.WHITE, Typeface.BOLD);
-                  profileView.setGravity(Gravity.CENTER);
-                  profileView.setPadding(dp(14), dp(10), dp(14), dp(10));
-                  profileView.setBackgroundColor(Color.rgb(38, 38, 38));
-                  profileView.setOnClickListener(v -> {
-                      workMode = !workMode;
-                      profileView.setText(workMode ? "TRABAJO" : "TODAS");
-                      refreshList(searchBox.getText().toString());
-                  });
-                  controls.addView(profileView, new LinearLayout.LayoutParams(0, dp(44), 1));
+                  profileView = controlButton("");
+                  profileView.setOnClickListener(v -> cycleProfile());
+                  controls.addView(profileView, weightedButtonParams(0));
 
-                  TextView homeSettings = text("LAUNCHER", 14, Color.WHITE, Typeface.BOLD);
-                  homeSettings.setGravity(Gravity.CENTER);
-                  homeSettings.setPadding(dp(14), dp(10), dp(14), dp(10));
-                  homeSettings.setBackgroundColor(Color.rgb(25, 25, 25));
-                  homeSettings.setOnClickListener(v -> openHomeSettings());
+                  focusView = controlButton("");
+                  focusView.setOnClickListener(v -> toggleFocus());
+                  controls.addView(focusView, weightedButtonParams(dp(7)));
 
-                  LinearLayout.LayoutParams settingParams =
-                      new LinearLayout.LayoutParams(0, dp(44), 1);
-                  settingParams.setMargins(dp(10), 0, 0, 0);
-                  controls.addView(homeSettings, settingParams);
+                  notificationsView = controlButton("AVISOS");
+                  notificationsView.setOnClickListener(v -> openNotificationAccess());
+                  controls.addView(notificationsView, weightedButtonParams(dp(7)));
 
                   root.addView(controls);
+                  updateControlLabels();
 
                   searchBox = new EditText(this);
                   searchBox.setSingleLine(true);
@@ -348,22 +403,33 @@ jobs:
                   searchBox.setTextColor(Color.WHITE);
                   searchBox.setHintTextColor(Color.GRAY);
                   searchBox.setTextSize(17);
-                  searchBox.setPadding(dp(14), dp(10), dp(14), dp(10));
-                  searchBox.setBackgroundColor(Color.rgb(28, 28, 28));
+                  searchBox.setPadding(dp(14), dp(9), dp(14), dp(9));
+                  searchBox.setBackgroundColor(Color.rgb(27, 27, 27));
                   searchBox.addTextChangedListener(new TextWatcher() {
                       @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
                       @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                          refreshList(s.toString());
+                          refreshList(s == null ? "" : s.toString());
                       }
                       @Override public void afterTextChanged(Editable s) {}
                   });
                   root.addView(searchBox, new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
 
-                  TextView hiddenManager = text("Administrar aplicaciones ocultas", 13, Color.GRAY, Typeface.NORMAL);
-                  hiddenManager.setPadding(0, dp(12), 0, dp(8));
+                  LinearLayout management = new LinearLayout(this);
+                  management.setOrientation(LinearLayout.HORIZONTAL);
+                  management.setPadding(0, dp(8), 0, dp(5));
+
+                  TextView hiddenManager = text("Ocultas", 13, Color.GRAY, Typeface.NORMAL);
+                  hiddenManager.setPadding(0, dp(8), dp(15), dp(8));
                   hiddenManager.setOnClickListener(v -> showHiddenApps());
-                  root.addView(hiddenManager);
+                  management.addView(hiddenManager);
+
+                  TextView launcherSettings = text("Cambiar launcher", 13, Color.GRAY, Typeface.NORMAL);
+                  launcherSettings.setPadding(dp(15), dp(8), 0, dp(8));
+                  launcherSettings.setOnClickListener(v -> openHomeSettings());
+                  management.addView(launcherSettings);
+
+                  root.addView(management);
 
                   ScrollView scroll = new ScrollView(this);
                   scroll.setFillViewport(true);
@@ -374,6 +440,57 @@ jobs:
                       LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
                   setContentView(root);
+              }
+
+              private LinearLayout.LayoutParams weightedButtonParams(int leftMargin) {
+                  LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
+                  params.setMargins(leftMargin, 0, 0, 0);
+                  return params;
+              }
+
+              private TextView controlButton(String label) {
+                  TextView view = text(label, 12, Color.WHITE, Typeface.BOLD);
+                  view.setGravity(Gravity.CENTER);
+                  view.setPadding(dp(4), dp(8), dp(4), dp(8));
+                  view.setBackgroundColor(Color.rgb(31, 31, 31));
+                  return view;
+              }
+
+              private void updateControlLabels() {
+                  if (profileView != null) {
+                      if (activeProfile == PROFILE_WORK) profileView.setText("TRABAJO");
+                      if (activeProfile == PROFILE_REST) profileView.setText("DESCANSO");
+                      if (activeProfile == PROFILE_ALL) profileView.setText("TODAS");
+                  }
+                  if (focusView != null) {
+                      focusView.setText(focusMode ? "ENFOQUE ON" : "ENFOQUE OFF");
+                      focusView.setBackgroundColor(focusMode ? Color.rgb(75, 75, 75) : Color.rgb(31, 31, 31));
+                  }
+                  updateNotificationButton();
+              }
+
+              private void updateNotificationButton() {
+                  if (notificationsView == null) return;
+                  boolean enabled = isNotificationAccessEnabled();
+                  notificationsView.setText(enabled ? "AVISOS ON" : "AVISOS OFF");
+                  notificationsView.setBackgroundColor(enabled ? Color.rgb(60, 60, 60) : Color.rgb(31, 31, 31));
+              }
+
+              private void cycleProfile() {
+                  activeProfile = (activeProfile + 1) % 3;
+                  prefs.edit().putInt("active_profile", activeProfile).apply();
+                  updateControlLabels();
+                  refreshList(searchBox.getText().toString());
+              }
+
+              private void toggleFocus() {
+                  focusMode = !focusMode;
+                  prefs.edit().putBoolean("focus_mode", focusMode).apply();
+                  updateControlLabels();
+                  Toast.makeText(this,
+                      focusMode ? "Modo Enfoque activado" : "Modo Enfoque desactivado",
+                      Toast.LENGTH_SHORT).show();
+                  refreshList(searchBox.getText().toString());
               }
 
               private void updateClock() {
@@ -410,6 +527,7 @@ jobs:
                       } catch (Exception error) {
                           label = packageName;
                       }
+                      if (label.isEmpty()) label = packageName;
 
                       allApps.add(new AppEntry(label, packageName, className));
                   }
@@ -422,22 +540,17 @@ jobs:
                   if (appList == null) return;
                   appList.removeAllViews();
 
-                  String query = rawQuery == null
-                      ? ""
-                      : rawQuery.trim().toLowerCase(Locale.ROOT);
-
+                  String query = rawQuery == null ? "" : rawQuery.trim().toLowerCase(Locale.ROOT);
                   List<AppEntry> visible = new ArrayList<>();
+
                   for (AppEntry app : allApps) {
                       if (hidden.contains(app.packageName)) continue;
+                      if (!belongsToActiveProfile(app)) continue;
 
                       String name = app.displayName(prefs);
                       if (!query.isEmpty()
                           && !name.toLowerCase(Locale.ROOT).contains(query)
                           && !app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
-                          continue;
-                      }
-
-                      if (workMode && !isWorkApp(app) && !favorites.contains(app.packageName)) {
                           continue;
                       }
                       visible.add(app);
@@ -452,9 +565,7 @@ jobs:
 
                   if (visible.isEmpty()) {
                       TextView empty = text(
-                          workMode
-                              ? "No hay aplicaciones de trabajo visibles.\nCambia a TODAS y mantén pulsada una app para marcarla favorita."
-                              : "No se encontraron aplicaciones.",
+                          "No hay aplicaciones en este perfil.\nMantén pulsada una app en TODAS para asignarla.",
                           16, Color.GRAY, Typeface.NORMAL);
                       empty.setPadding(0, dp(28), 0, dp(20));
                       appList.addView(empty);
@@ -462,18 +573,7 @@ jobs:
                   }
 
                   for (AppEntry app : visible) {
-                      TextView row = text(
-                          (favorites.contains(app.packageName) ? "★  " : "") + app.displayName(prefs),
-                          19, Color.WHITE, Typeface.NORMAL);
-                      row.setGravity(Gravity.CENTER_VERTICAL);
-                      row.setPadding(dp(4), dp(16), dp(4), dp(16));
-                      row.setOnClickListener(v -> openApp(app));
-                      row.setOnLongClickListener(v -> {
-                          showAppMenu(app);
-                          return true;
-                      });
-                      appList.addView(row);
-
+                      appList.addView(createAppRow(app));
                       View divider = new View(this);
                       divider.setBackgroundColor(Color.rgb(35, 35, 35));
                       appList.addView(divider, new LinearLayout.LayoutParams(
@@ -481,32 +581,160 @@ jobs:
                   }
               }
 
+              private View createAppRow(AppEntry app) {
+                  LinearLayout row = new LinearLayout(this);
+                  row.setOrientation(LinearLayout.VERTICAL);
+                  row.setPadding(dp(3), dp(12), dp(3), dp(12));
+
+                  String name = app.displayName(prefs);
+                  if (favorites.contains(app.packageName)) name = "★  " + name;
+
+                  TextView main = text(name, 19, Color.WHITE, Typeface.NORMAL);
+                  row.addView(main);
+
+                  String status = buildStatus(app);
+                  if (!status.isEmpty()) {
+                      TextView detail = text(status, 12, Color.GRAY, Typeface.NORMAL);
+                      detail.setPadding(favorites.contains(app.packageName) ? dp(24) : 0, dp(2), 0, 0);
+                      row.addView(detail);
+                  }
+
+                  row.setOnClickListener(v -> requestOpen(app));
+                  row.setOnLongClickListener(v -> {
+                      showAppMenu(app);
+                      return true;
+                  });
+                  return row;
+              }
+
+              private String buildStatus(AppEntry app) {
+                  List<String> states = new ArrayList<>();
+                  if (belongsToWork(app)) states.add("Trabajo");
+                  if (belongsToRest(app)) states.add("Descanso");
+                  if (delayed.contains(app.packageName)) states.add("pausa 5 s");
+                  if (focusBlocked.contains(app.packageName)) states.add("bloqueada en Enfoque");
+                  if (mutedNotifications.contains(app.packageName)) states.add("avisos silenciados");
+                  return join(states, " · ");
+              }
+
+              private boolean belongsToActiveProfile(AppEntry app) {
+                  if (activeProfile == PROFILE_ALL) return true;
+                  if (activeProfile == PROFILE_WORK) return belongsToWork(app);
+                  return belongsToRest(app);
+              }
+
+              private boolean belongsToWork(AppEntry app) {
+                  if (workRemoved.contains(app.packageName)) return false;
+                  if (workAdded.contains(app.packageName)) return true;
+                  return isWorkApp(app);
+              }
+
+              private boolean belongsToRest(AppEntry app) {
+                  if (restRemoved.contains(app.packageName)) return false;
+                  if (restAdded.contains(app.packageName)) return true;
+                  return !isWorkApp(app);
+              }
+
               private boolean isWorkApp(AppEntry app) {
-                  String text = (app.label + " " + app.packageName).toLowerCase(Locale.ROOT);
+                  String value = (app.label + " " + app.packageName).toLowerCase(Locale.ROOT);
                   String[] words = {
-                      "pedidosya", "pedidos ya", "rider", "zubale", "foxer",
-                      "maps", "waze", "whatsapp", "telefono", "phone",
-                      "camera", "cámara", "clima", "weather"
+                      "pedidosya", "pedidos ya", "rider", "zubale", "foxer", "instaleap",
+                      "maps", "waze", "whatsapp", "telefono", "phone", "camera", "cámara",
+                      "clima", "weather", "torque", "obd", "netlify", "shopper"
                   };
                   for (String word : words) {
-                      if (text.contains(word)) return true;
+                      if (value.contains(word)) return true;
                   }
                   return false;
               }
 
-              private void openApp(AppEntry app) {
+              private void requestOpen(AppEntry app) {
                   hideKeyboard();
+
+                  if (focusMode && focusBlocked.contains(app.packageName)) {
+                      new AlertDialog.Builder(this)
+                          .setTitle("Aplicación bloqueada")
+                          .setMessage(app.displayName(prefs)
+                              + " está bloqueada mientras el modo Enfoque está activo.")
+                          .setPositiveButton("Entendido", null)
+                          .setNegativeButton("Desactivar Enfoque", (dialog, which) -> {
+                              toggleFocus();
+                              openApp(app);
+                          })
+                          .show();
+                      return;
+                  }
+
+                  if (delayed.contains(app.packageName)) {
+                      showDelayDialog(app, 5);
+                      return;
+                  }
+
+                  openApp(app);
+              }
+
+              private void showDelayDialog(AppEntry app, int seconds) {
+                  LinearLayout content = new LinearLayout(this);
+                  content.setOrientation(LinearLayout.VERTICAL);
+                  content.setPadding(dp(24), dp(10), dp(24), 0);
+
+                  TextView message = text(
+                      "Respira un momento antes de abrir " + app.displayName(prefs) + ".",
+                      16, Color.DKGRAY, Typeface.NORMAL);
+                  content.addView(message);
+
+                  TextView countdown = text(String.valueOf(seconds), 40, Color.DKGRAY, Typeface.BOLD);
+                  countdown.setGravity(Gravity.CENTER);
+                  countdown.setPadding(0, dp(16), 0, dp(8));
+                  content.addView(countdown);
+
+                  AlertDialog dialog = new AlertDialog.Builder(this)
+                      .setTitle("Pausa consciente")
+                      .setView(content)
+                      .setNegativeButton("Cancelar", null)
+                      .setPositiveButton("Esperar", null)
+                      .create();
+
+                  dialog.setOnShowListener(ignored -> {
+                      Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+                      positive.setEnabled(false);
+
+                      final int[] remaining = {seconds};
+                      Runnable ticker = new Runnable() {
+                          @Override
+                          public void run() {
+                              if (!dialog.isShowing()) return;
+                              remaining[0]--;
+                              if (remaining[0] <= 0) {
+                                  countdown.setText("✓");
+                                  positive.setText("Abrir");
+                                  positive.setEnabled(true);
+                                  positive.setOnClickListener(v -> {
+                                      dialog.dismiss();
+                                      openApp(app);
+                                  });
+                              } else {
+                                  countdown.setText(String.valueOf(remaining[0]));
+                                  handler.postDelayed(this, 1_000);
+                              }
+                          }
+                      };
+                      handler.postDelayed(ticker, 1_000);
+                  });
+
+                  dialog.show();
+              }
+
+              private void openApp(AppEntry app) {
                   try {
                       Intent intent = new Intent(Intent.ACTION_MAIN);
                       intent.addCategory(Intent.CATEGORY_LAUNCHER);
                       intent.setComponent(new ComponentName(app.packageName, app.className));
-                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                          | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                       startActivity(intent);
                   } catch (Exception error) {
                       try {
-                          Intent fallback = getPackageManager()
-                              .getLaunchIntentForPackage(app.packageName);
+                          Intent fallback = getPackageManager().getLaunchIntentForPackage(app.packageName);
                           if (fallback == null) throw new ActivityNotFoundException();
                           startActivity(fallback);
                       } catch (Exception fallbackError) {
@@ -518,12 +746,16 @@ jobs:
               }
 
               private void showAppMenu(AppEntry app) {
-                  String favText = favorites.contains(app.packageName)
-                      ? "Quitar de favoritos"
-                      : "Marcar como favorita";
+                  boolean inWork = belongsToWork(app);
+                  boolean inRest = belongsToRest(app);
 
                   String[] options = {
-                      favText,
+                      favorites.contains(app.packageName) ? "Quitar de favoritas" : "Marcar como favorita",
+                      inWork ? "Quitar del perfil Trabajo" : "Agregar al perfil Trabajo",
+                      inRest ? "Quitar del perfil Descanso" : "Agregar al perfil Descanso",
+                      delayed.contains(app.packageName) ? "Quitar pausa de 5 segundos" : "Agregar pausa de 5 segundos",
+                      focusBlocked.contains(app.packageName) ? "Permitir durante Enfoque" : "Bloquear durante Enfoque",
+                      mutedNotifications.contains(app.packageName) ? "Permitir notificaciones" : "Silenciar notificaciones",
                       "Cambiar nombre visible",
                       "Ocultar aplicación",
                       "Información de la aplicación"
@@ -532,23 +764,70 @@ jobs:
                   new AlertDialog.Builder(this)
                       .setTitle(app.displayName(prefs))
                       .setItems(options, (dialog, which) -> {
-                          if (which == 0) toggleFavorite(app);
-                          if (which == 1) renameApp(app);
-                          if (which == 2) hideApp(app);
-                          if (which == 3) openAppInfo(app);
+                          if (which == 0) toggleInSet("favorites", favorites, app.packageName);
+                          if (which == 1) toggleWorkMembership(app);
+                          if (which == 2) toggleRestMembership(app);
+                          if (which == 3) toggleInSet("delayed", delayed, app.packageName);
+                          if (which == 4) toggleInSet("focus_blocked", focusBlocked, app.packageName);
+                          if (which == 5) toggleMutedNotifications(app);
+                          if (which == 6) renameApp(app);
+                          if (which == 7) hideApp(app);
+                          if (which == 8) openAppInfo(app);
                       })
                       .setNegativeButton("Cancelar", null)
                       .show();
               }
 
-              private void toggleFavorite(AppEntry app) {
-                  if (favorites.contains(app.packageName)) {
-                      favorites.remove(app.packageName);
-                  } else {
-                      favorites.add(app.packageName);
-                  }
-                  saveSet("favorites", favorites);
+              private void toggleInSet(String key, Set<String> set, String packageName) {
+                  if (set.contains(packageName)) set.remove(packageName);
+                  else set.add(packageName);
+                  saveSet(key, set);
                   refreshList(searchBox.getText().toString());
+              }
+
+              private void toggleWorkMembership(AppEntry app) {
+                  if (belongsToWork(app)) {
+                      workAdded.remove(app.packageName);
+                      workRemoved.add(app.packageName);
+                  } else {
+                      workRemoved.remove(app.packageName);
+                      workAdded.add(app.packageName);
+                  }
+                  saveSet("work_added", workAdded);
+                  saveSet("work_removed", workRemoved);
+                  refreshList(searchBox.getText().toString());
+              }
+
+              private void toggleRestMembership(AppEntry app) {
+                  if (belongsToRest(app)) {
+                      restAdded.remove(app.packageName);
+                      restRemoved.add(app.packageName);
+                  } else {
+                      restRemoved.remove(app.packageName);
+                      restAdded.add(app.packageName);
+                  }
+                  saveSet("rest_added", restAdded);
+                  saveSet("rest_removed", restRemoved);
+                  refreshList(searchBox.getText().toString());
+              }
+
+              private void toggleMutedNotifications(AppEntry app) {
+                  if (mutedNotifications.contains(app.packageName)) {
+                      mutedNotifications.remove(app.packageName);
+                  } else {
+                      mutedNotifications.add(app.packageName);
+                  }
+                  saveSet("muted_notifications", mutedNotifications);
+                  refreshList(searchBox.getText().toString());
+
+                  if (!isNotificationAccessEnabled()) {
+                      new AlertDialog.Builder(this)
+                          .setTitle("Falta activar el filtro")
+                          .setMessage("La aplicación quedó marcada, pero Android necesita que autorices el acceso a notificaciones.")
+                          .setPositiveButton("Abrir ajustes", (dialog, which) -> openNotificationAccess())
+                          .setNegativeButton("Más tarde", null)
+                          .show();
+                  }
               }
 
               private void renameApp(AppEntry app) {
@@ -570,6 +849,7 @@ jobs:
                               editor.putString("rename_" + app.packageName, value);
                           }
                           editor.apply();
+                          loadApplications();
                           refreshList(searchBox.getText().toString());
                       })
                       .setNegativeButton("Cancelar", null)
@@ -591,10 +871,7 @@ jobs:
                   List<String> packages = new ArrayList<>(hidden);
                   Collections.sort(packages);
                   String[] labels = new String[packages.size()];
-
-                  for (int i = 0; i < packages.size(); i++) {
-                      labels[i] = findName(packages.get(i));
-                  }
+                  for (int i = 0; i < packages.size(); i++) labels[i] = findName(packages.get(i));
 
                   new AlertDialog.Builder(this)
                       .setTitle("Toca una aplicación para mostrarla")
@@ -609,11 +886,31 @@ jobs:
 
               private String findName(String packageName) {
                   for (AppEntry app : allApps) {
-                      if (app.packageName.equals(packageName)) {
-                          return app.displayName(prefs);
-                      }
+                      if (app.packageName.equals(packageName)) return app.displayName(prefs);
                   }
                   return packageName;
+              }
+
+              private void openNotificationAccess() {
+                  try {
+                      startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+                  } catch (Exception first) {
+                      try {
+                          startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                      } catch (Exception second) {
+                          startActivity(new Intent(Settings.ACTION_SETTINGS));
+                      }
+                  }
+              }
+
+              private boolean isNotificationAccessEnabled() {
+                  try {
+                      String enabled = Settings.Secure.getString(
+                          getContentResolver(), "enabled_notification_listeners");
+                      return enabled != null && enabled.contains(getPackageName());
+                  } catch (Exception error) {
+                      return false;
+                  }
               }
 
               private void openHomeSettings() {
@@ -643,9 +940,7 @@ jobs:
                   if (current == null) return;
                   InputMethodManager manager =
                       (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                  if (manager != null) {
-                      manager.hideSoftInputFromWindow(current.getWindowToken(), 0);
-                  }
+                  if (manager != null) manager.hideSoftInputFromWindow(current.getWindowToken(), 0);
                   current.clearFocus();
               }
 
@@ -667,6 +962,15 @@ jobs:
                   return value.substring(0, 1).toUpperCase(Locale.ROOT) + value.substring(1);
               }
 
+              private String join(List<String> values, String separator) {
+                  StringBuilder builder = new StringBuilder();
+                  for (int i = 0; i < values.size(); i++) {
+                      if (i > 0) builder.append(separator);
+                      builder.append(values.get(i));
+                  }
+                  return builder.toString();
+              }
+
               private static final class AppEntry {
                   final String label;
                   final String packageName;
@@ -685,18 +989,63 @@ jobs:
           }
           EOF
 
+          cat > app/src/main/java/cl/andres/minimalsocio/NotificationFilterService.java <<'EOF'
+          package cl.andres.minimalsocio;
+
+          import android.app.Notification;
+          import android.content.SharedPreferences;
+          import android.service.notification.NotificationListenerService;
+          import android.service.notification.StatusBarNotification;
+
+          import java.util.Collections;
+          import java.util.HashSet;
+          import java.util.Set;
+
+          public class NotificationFilterService extends NotificationListenerService {
+              private static final String PREFS = "minimal_socio";
+
+              @Override
+              public void onNotificationPosted(StatusBarNotification sbn) {
+                  if (sbn == null) return;
+                  String packageName = sbn.getPackageName();
+                  if (packageName == null || packageName.equals(getPackageName())) return;
+
+                  SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                  Set<String> stored = prefs.getStringSet("muted_notifications", Collections.emptySet());
+                  Set<String> muted = stored == null ? new HashSet<>() : new HashSet<>(stored);
+                  if (!muted.contains(packageName)) return;
+
+                  Notification notification = sbn.getNotification();
+                  if (notification != null) {
+                      if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) return;
+                      if (Notification.CATEGORY_CALL.equals(notification.category)) return;
+                      if (Notification.CATEGORY_ALARM.equals(notification.category)) return;
+                  }
+
+                  try {
+                      cancelNotification(sbn.getKey());
+                  } catch (Exception ignored) {
+                  }
+              }
+          }
+          EOF
+
       - name: Configurar Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Compilar APK real
+      - name: Compilar APK firmada
         shell: bash
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Preparar descarga
+        shell: bash
+        run: cp app/build/outputs/apk/release/app-release.apk MinimalSocio_v2.0.apk
 
       - name: Publicar APK descargable
         uses: actions/upload-artifact@v4
         with:
-          name: Minimal-Socio-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Minimal-Socio-v2-APK
+          path: MinimalSocio_v2.0.apk
           if-no-files-found: error
