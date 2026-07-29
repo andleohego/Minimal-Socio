@@ -1,0 +1,702 @@
+name: Compilar Minimal Socio
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Preparar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android API 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Crear proyecto Android
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/cl/andres/minimalsocio
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "MinimalSocio"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'cl.andres.minimalsocio'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "cl.andres.minimalsocio"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">Minimal Socio</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <resources>
+              <color name="black">#000000</color>
+              <color name="white">#FFFFFF</color>
+              <color name="gray">#AFAFAF</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="Theme.MinimalSocio" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowBackground">@color/black</item>
+                  <item name="android:colorAccent">@color/white</item>
+                  <item name="android:navigationBarColor">@color/black</item>
+                  <item name="android:statusBarColor">@color/black</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M22,25h64v10H22zM22,49h48v10H22zM22,73h58v10H22z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'EOF'
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#000000" />
+          </shape>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent>
+              </queries>
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.MinimalSocio">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.HOME" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/cl/andres/minimalsocio/MainActivity.java <<'EOF'
+          package cl.andres.minimalsocio;
+
+          import android.app.Activity;
+          import android.app.AlertDialog;
+          import android.content.ActivityNotFoundException;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.content.pm.ResolveInfo;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.provider.Settings;
+          import android.text.Editable;
+          import android.text.TextWatcher;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.inputmethod.InputMethodManager;
+          import android.widget.EditText;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import java.text.SimpleDateFormat;
+          import java.util.ArrayList;
+          import java.util.Collections;
+          import java.util.Comparator;
+          import java.util.Date;
+          import java.util.HashSet;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.Map;
+          import java.util.Set;
+
+          public class MainActivity extends Activity {
+              private final Handler clockHandler = new Handler();
+              private final List<AppEntry> allApps = new ArrayList<>();
+
+              private LinearLayout appList;
+              private EditText searchBox;
+              private TextView clockView;
+              private TextView dateView;
+              private TextView profileView;
+
+              private SharedPreferences prefs;
+              private Set<String> favorites;
+              private Set<String> hidden;
+              private boolean workMode = true;
+
+              private final Runnable clockTick = new Runnable() {
+                  @Override
+                  public void run() {
+                      updateClock();
+                      clockHandler.postDelayed(this, 30000);
+                  }
+              };
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  prefs = getSharedPreferences("minimal_socio", MODE_PRIVATE);
+                  favorites = new HashSet<>(prefs.getStringSet("favorites", new HashSet<>()));
+                  hidden = new HashSet<>(prefs.getStringSet("hidden", new HashSet<>()));
+
+                  getWindow().setStatusBarColor(Color.BLACK);
+                  getWindow().setNavigationBarColor(Color.BLACK);
+
+                  buildInterface();
+                  loadApplications();
+                  refreshList("");
+                  clockHandler.post(clockTick);
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  if (appList != null) {
+                      loadApplications();
+                      refreshList(searchBox == null ? "" : searchBox.getText().toString());
+                  }
+              }
+
+              @Override
+              protected void onDestroy() {
+                  clockHandler.removeCallbacks(clockTick);
+                  super.onDestroy();
+              }
+
+              private void buildInterface() {
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(dp(22), dp(18), dp(22), dp(12));
+                  root.setBackgroundColor(Color.BLACK);
+
+                  clockView = text("", 48, Color.WHITE, Typeface.BOLD);
+                  root.addView(clockView);
+
+                  dateView = text("", 16, Color.LTGRAY, Typeface.NORMAL);
+                  root.addView(dateView);
+
+                  TextView title = text("Minimal Socio", 22, Color.WHITE, Typeface.BOLD);
+                  title.setPadding(0, dp(22), 0, dp(4));
+                  root.addView(title);
+
+                  TextView credit = text("Desarrollado para Andrés Herrera G.", 13, Color.GRAY, Typeface.NORMAL);
+                  root.addView(credit);
+
+                  LinearLayout controls = new LinearLayout(this);
+                  controls.setOrientation(LinearLayout.HORIZONTAL);
+                  controls.setPadding(0, dp(16), 0, dp(10));
+
+                  profileView = text("TRABAJO", 14, Color.WHITE, Typeface.BOLD);
+                  profileView.setGravity(Gravity.CENTER);
+                  profileView.setPadding(dp(14), dp(10), dp(14), dp(10));
+                  profileView.setBackgroundColor(Color.rgb(38, 38, 38));
+                  profileView.setOnClickListener(v -> {
+                      workMode = !workMode;
+                      profileView.setText(workMode ? "TRABAJO" : "TODAS");
+                      refreshList(searchBox.getText().toString());
+                  });
+                  controls.addView(profileView, new LinearLayout.LayoutParams(0, dp(44), 1));
+
+                  TextView homeSettings = text("LAUNCHER", 14, Color.WHITE, Typeface.BOLD);
+                  homeSettings.setGravity(Gravity.CENTER);
+                  homeSettings.setPadding(dp(14), dp(10), dp(14), dp(10));
+                  homeSettings.setBackgroundColor(Color.rgb(25, 25, 25));
+                  homeSettings.setOnClickListener(v -> openHomeSettings());
+
+                  LinearLayout.LayoutParams settingParams =
+                      new LinearLayout.LayoutParams(0, dp(44), 1);
+                  settingParams.setMargins(dp(10), 0, 0, 0);
+                  controls.addView(homeSettings, settingParams);
+
+                  root.addView(controls);
+
+                  searchBox = new EditText(this);
+                  searchBox.setSingleLine(true);
+                  searchBox.setHint("Buscar aplicación");
+                  searchBox.setTextColor(Color.WHITE);
+                  searchBox.setHintTextColor(Color.GRAY);
+                  searchBox.setTextSize(17);
+                  searchBox.setPadding(dp(14), dp(10), dp(14), dp(10));
+                  searchBox.setBackgroundColor(Color.rgb(28, 28, 28));
+                  searchBox.addTextChangedListener(new TextWatcher() {
+                      @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                      @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                          refreshList(s.toString());
+                      }
+                      @Override public void afterTextChanged(Editable s) {}
+                  });
+                  root.addView(searchBox, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
+
+                  TextView hiddenManager = text("Administrar aplicaciones ocultas", 13, Color.GRAY, Typeface.NORMAL);
+                  hiddenManager.setPadding(0, dp(12), 0, dp(8));
+                  hiddenManager.setOnClickListener(v -> showHiddenApps());
+                  root.addView(hiddenManager);
+
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setFillViewport(true);
+                  appList = new LinearLayout(this);
+                  appList.setOrientation(LinearLayout.VERTICAL);
+                  scroll.addView(appList);
+                  root.addView(scroll, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+
+                  setContentView(root);
+              }
+
+              private void updateClock() {
+                  Date now = new Date();
+                  Locale locale = new Locale("es", "CL");
+                  clockView.setText(new SimpleDateFormat("HH:mm", locale).format(now));
+                  String formatted = new SimpleDateFormat("EEEE d 'de' MMMM", locale).format(now);
+                  dateView.setText(capitalize(formatted));
+              }
+
+              private void loadApplications() {
+                  allApps.clear();
+                  PackageManager pm = getPackageManager();
+                  Intent query = new Intent(Intent.ACTION_MAIN);
+                  query.addCategory(Intent.CATEGORY_LAUNCHER);
+
+                  List<ResolveInfo> results;
+                  try {
+                      results = pm.queryIntentActivities(query, PackageManager.MATCH_ALL);
+                  } catch (Exception error) {
+                      results = Collections.emptyList();
+                  }
+
+                  for (ResolveInfo info : results) {
+                      if (info.activityInfo == null) continue;
+                      String packageName = info.activityInfo.packageName;
+                      String className = info.activityInfo.name;
+                      if (getPackageName().equals(packageName)) continue;
+
+                      String label;
+                      try {
+                          CharSequence raw = info.loadLabel(pm);
+                          label = raw == null ? packageName : raw.toString().trim();
+                      } catch (Exception error) {
+                          label = packageName;
+                      }
+
+                      allApps.add(new AppEntry(label, packageName, className));
+                  }
+
+                  Collections.sort(allApps, Comparator.comparing(
+                      app -> app.displayName(prefs).toLowerCase(Locale.ROOT)));
+              }
+
+              private void refreshList(String rawQuery) {
+                  if (appList == null) return;
+                  appList.removeAllViews();
+
+                  String query = rawQuery == null
+                      ? ""
+                      : rawQuery.trim().toLowerCase(Locale.ROOT);
+
+                  List<AppEntry> visible = new ArrayList<>();
+                  for (AppEntry app : allApps) {
+                      if (hidden.contains(app.packageName)) continue;
+
+                      String name = app.displayName(prefs);
+                      if (!query.isEmpty()
+                          && !name.toLowerCase(Locale.ROOT).contains(query)
+                          && !app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
+                          continue;
+                      }
+
+                      if (workMode && !isWorkApp(app) && !favorites.contains(app.packageName)) {
+                          continue;
+                      }
+                      visible.add(app);
+                  }
+
+                  Collections.sort(visible, (a, b) -> {
+                      boolean af = favorites.contains(a.packageName);
+                      boolean bf = favorites.contains(b.packageName);
+                      if (af != bf) return af ? -1 : 1;
+                      return a.displayName(prefs).compareToIgnoreCase(b.displayName(prefs));
+                  });
+
+                  if (visible.isEmpty()) {
+                      TextView empty = text(
+                          workMode
+                              ? "No hay aplicaciones de trabajo visibles.\nCambia a TODAS y mantén pulsada una app para marcarla favorita."
+                              : "No se encontraron aplicaciones.",
+                          16, Color.GRAY, Typeface.NORMAL);
+                      empty.setPadding(0, dp(28), 0, dp(20));
+                      appList.addView(empty);
+                      return;
+                  }
+
+                  for (AppEntry app : visible) {
+                      TextView row = text(
+                          (favorites.contains(app.packageName) ? "★  " : "") + app.displayName(prefs),
+                          19, Color.WHITE, Typeface.NORMAL);
+                      row.setGravity(Gravity.CENTER_VERTICAL);
+                      row.setPadding(dp(4), dp(16), dp(4), dp(16));
+                      row.setOnClickListener(v -> openApp(app));
+                      row.setOnLongClickListener(v -> {
+                          showAppMenu(app);
+                          return true;
+                      });
+                      appList.addView(row);
+
+                      View divider = new View(this);
+                      divider.setBackgroundColor(Color.rgb(35, 35, 35));
+                      appList.addView(divider, new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, 1));
+                  }
+              }
+
+              private boolean isWorkApp(AppEntry app) {
+                  String text = (app.label + " " + app.packageName).toLowerCase(Locale.ROOT);
+                  String[] words = {
+                      "pedidosya", "pedidos ya", "rider", "zubale", "foxer",
+                      "maps", "waze", "whatsapp", "telefono", "phone",
+                      "camera", "cámara", "clima", "weather"
+                  };
+                  for (String word : words) {
+                      if (text.contains(word)) return true;
+                  }
+                  return false;
+              }
+
+              private void openApp(AppEntry app) {
+                  hideKeyboard();
+                  try {
+                      Intent intent = new Intent(Intent.ACTION_MAIN);
+                      intent.addCategory(Intent.CATEGORY_LAUNCHER);
+                      intent.setComponent(new ComponentName(app.packageName, app.className));
+                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                          | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                      startActivity(intent);
+                  } catch (Exception error) {
+                      try {
+                          Intent fallback = getPackageManager()
+                              .getLaunchIntentForPackage(app.packageName);
+                          if (fallback == null) throw new ActivityNotFoundException();
+                          startActivity(fallback);
+                      } catch (Exception fallbackError) {
+                          Toast.makeText(this,
+                              "No se pudo abrir " + app.displayName(prefs),
+                              Toast.LENGTH_SHORT).show();
+                      }
+                  }
+              }
+
+              private void showAppMenu(AppEntry app) {
+                  String favText = favorites.contains(app.packageName)
+                      ? "Quitar de favoritos"
+                      : "Marcar como favorita";
+
+                  String[] options = {
+                      favText,
+                      "Cambiar nombre visible",
+                      "Ocultar aplicación",
+                      "Información de la aplicación"
+                  };
+
+                  new AlertDialog.Builder(this)
+                      .setTitle(app.displayName(prefs))
+                      .setItems(options, (dialog, which) -> {
+                          if (which == 0) toggleFavorite(app);
+                          if (which == 1) renameApp(app);
+                          if (which == 2) hideApp(app);
+                          if (which == 3) openAppInfo(app);
+                      })
+                      .setNegativeButton("Cancelar", null)
+                      .show();
+              }
+
+              private void toggleFavorite(AppEntry app) {
+                  if (favorites.contains(app.packageName)) {
+                      favorites.remove(app.packageName);
+                  } else {
+                      favorites.add(app.packageName);
+                  }
+                  saveSet("favorites", favorites);
+                  refreshList(searchBox.getText().toString());
+              }
+
+              private void renameApp(AppEntry app) {
+                  final EditText input = new EditText(this);
+                  input.setSingleLine(true);
+                  input.setText(app.displayName(prefs));
+                  input.setSelectAllOnFocus(true);
+                  input.setPadding(dp(18), dp(10), dp(18), dp(10));
+
+                  new AlertDialog.Builder(this)
+                      .setTitle("Cambiar nombre visible")
+                      .setView(input)
+                      .setPositiveButton("Guardar", (dialog, which) -> {
+                          String value = input.getText().toString().trim();
+                          SharedPreferences.Editor editor = prefs.edit();
+                          if (value.isEmpty() || value.equals(app.label)) {
+                              editor.remove("rename_" + app.packageName);
+                          } else {
+                              editor.putString("rename_" + app.packageName, value);
+                          }
+                          editor.apply();
+                          refreshList(searchBox.getText().toString());
+                      })
+                      .setNegativeButton("Cancelar", null)
+                      .show();
+              }
+
+              private void hideApp(AppEntry app) {
+                  hidden.add(app.packageName);
+                  saveSet("hidden", hidden);
+                  refreshList(searchBox.getText().toString());
+              }
+
+              private void showHiddenApps() {
+                  if (hidden.isEmpty()) {
+                      Toast.makeText(this, "No hay aplicaciones ocultas", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+
+                  List<String> packages = new ArrayList<>(hidden);
+                  Collections.sort(packages);
+                  String[] labels = new String[packages.size()];
+
+                  for (int i = 0; i < packages.size(); i++) {
+                      labels[i] = findName(packages.get(i));
+                  }
+
+                  new AlertDialog.Builder(this)
+                      .setTitle("Toca una aplicación para mostrarla")
+                      .setItems(labels, (dialog, which) -> {
+                          hidden.remove(packages.get(which));
+                          saveSet("hidden", hidden);
+                          refreshList(searchBox.getText().toString());
+                      })
+                      .setNegativeButton("Cerrar", null)
+                      .show();
+              }
+
+              private String findName(String packageName) {
+                  for (AppEntry app : allApps) {
+                      if (app.packageName.equals(packageName)) {
+                          return app.displayName(prefs);
+                      }
+                  }
+                  return packageName;
+              }
+
+              private void openHomeSettings() {
+                  try {
+                      startActivity(new Intent(Settings.ACTION_HOME_SETTINGS));
+                  } catch (Exception error) {
+                      startActivity(new Intent(Settings.ACTION_SETTINGS));
+                  }
+              }
+
+              private void openAppInfo(AppEntry app) {
+                  try {
+                      Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                      intent.setData(android.net.Uri.parse("package:" + app.packageName));
+                      startActivity(intent);
+                  } catch (Exception error) {
+                      Toast.makeText(this, "No se pudo abrir la información", Toast.LENGTH_SHORT).show();
+                  }
+              }
+
+              private void saveSet(String key, Set<String> values) {
+                  prefs.edit().putStringSet(key, new HashSet<>(values)).apply();
+              }
+
+              private void hideKeyboard() {
+                  View current = getCurrentFocus();
+                  if (current == null) return;
+                  InputMethodManager manager =
+                      (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                  if (manager != null) {
+                      manager.hideSoftInputFromWindow(current.getWindowToken(), 0);
+                  }
+                  current.clearFocus();
+              }
+
+              private TextView text(String value, float size, int color, int style) {
+                  TextView view = new TextView(this);
+                  view.setText(value);
+                  view.setTextSize(size);
+                  view.setTextColor(color);
+                  view.setTypeface(Typeface.create("sans", style));
+                  return view;
+              }
+
+              private int dp(int value) {
+                  return Math.round(value * getResources().getDisplayMetrics().density);
+              }
+
+              private String capitalize(String value) {
+                  if (value == null || value.isEmpty()) return "";
+                  return value.substring(0, 1).toUpperCase(Locale.ROOT) + value.substring(1);
+              }
+
+              private static final class AppEntry {
+                  final String label;
+                  final String packageName;
+                  final String className;
+
+                  AppEntry(String label, String packageName, String className) {
+                      this.label = label;
+                      this.packageName = packageName;
+                      this.className = className;
+                  }
+
+                  String displayName(SharedPreferences prefs) {
+                      return prefs.getString("rename_" + packageName, label);
+                  }
+              }
+          }
+          EOF
+
+      - name: Configurar Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar APK real
+        shell: bash
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Publicar APK descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minimal-Socio-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
