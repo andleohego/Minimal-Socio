@@ -1,0 +1,115 @@
+name: Compilar Temporizador APK v1.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - temporizador-apk-v1
+    paths:
+      - '.github/workflows/temporizador_fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Preparar repositorio
+        uses: actions/checkout@v4
+        with:
+          ref: temporizador-apk-v1
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android API 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Reconstruir proyecto base y aplicar corrección
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          p = Path('.github/workflows/temporizador.yml')
+          s = p.read_text(encoding='utf-8')
+          marker = "      - name: Crear proyecto Android\n        shell: bash\n        run: |\n"
+          start = s.index(marker) + len(marker)
+          end = s.index("\n      - name: Compilar APK", start)
+          block = s[start:end]
+          lines = block.splitlines()
+          cleaned = []
+          for line in lines:
+              cleaned.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/crear_proyecto.sh').write_text('\n'.join(cleaned) + '\n', encoding='utf-8')
+          PY
+
+          bash /tmp/crear_proyecto.sh
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/cl/andres/temporizador/MainActivity.java')
+          s = p.read_text(encoding='utf-8')
+          old = '''                  scroll.addView(root, new ScrollView.LayoutParams(
+                      ScrollView.LayoutParams.MATCH_PARENT,
+                      ScrollView.LayoutParams.WRAP_CONTENT
+                  ));
+'''
+          new = old + '''
+                  // IMPORTANTE: mostrar la vista construida en pantalla.
+                  setContentView(scroll);
+'''
+          if 'setContentView(scroll);' not in s:
+              if old not in s:
+                  raise SystemExit('No se encontró el punto de inserción de setContentView')
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          print('Corrección aplicada: setContentView(scroll)')
+          PY
+
+      - name: Compilar APK v1.1
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Preparar APK corregido
+        shell: bash
+        run: |
+          mkdir -p salida
+          cp app/build/outputs/apk/debug/app-debug.apk salida/Temporizador_v1_1.apk
+          ls -lh salida/Temporizador_v1_1.apk
+
+      - name: Guardar APK en la rama
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add salida/Temporizador_v1_1.apk
+          if git diff --cached --quiet; then
+            echo "APK sin cambios"
+          else
+            git commit -m "Agregar Temporizador v1.1 corregido"
+            git push origin HEAD:temporizador-apk-v1
+          fi
+
+      - name: Publicar artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Temporizador-APK-v1.1
+          path: salida/Temporizador_v1_1.apk
+          retention-days: 30
