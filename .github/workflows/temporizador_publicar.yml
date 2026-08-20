@@ -1,4 +1,4 @@
-name: Compilar y publicar Temporizador APK
+name: Compilar y publicar Temporizador APK v1.1
 
 on:
   workflow_dispatch:
@@ -58,27 +58,47 @@ jobs:
           PY
           bash /tmp/crear_temporizador.sh
 
-      - name: Compilar APK
+      - name: Aplicar corrección de pantalla negra
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/cl/andres/temporizador/MainActivity.java')
+          s = p.read_text(encoding='utf-8')
+          marker = '''                  scroll.addView(root, new ScrollView.LayoutParams(
+                      ScrollView.LayoutParams.MATCH_PARENT,
+                      ScrollView.LayoutParams.WRAP_CONTENT
+                  ));
+'''
+          if 'setContentView(scroll);' not in s:
+              if marker not in s:
+                  raise SystemExit('No se encontró dónde insertar setContentView')
+              s = s.replace(marker, marker + '\n                  setContentView(scroll);\n', 1)
+          p.write_text(s, encoding='utf-8')
+          print('OK: interfaz vinculada con setContentView(scroll)')
+          PY
+
+      - name: Compilar APK v1.1
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Guardar APK en la rama
+      - name: Guardar APK corregido en la rama
         shell: bash
         run: |
           mkdir -p salida
-          cp app/build/outputs/apk/debug/app-debug.apk salida/Temporizador_v1.apk
+          cp app/build/outputs/apk/debug/app-debug.apk salida/Temporizador_v1_1.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add salida/Temporizador_v1.apk
+          git add salida/Temporizador_v1_1.apk
           if git diff --cached --quiet; then
             echo "APK sin cambios"
           else
-            git commit -m "Agregar Temporizador_v1.apk [skip ci]"
+            git commit -m "Agregar Temporizador_v1_1.apk [skip ci]"
             git push origin HEAD:temporizador-apk-v1
           fi
 
       - name: Publicar artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: Temporizador-APK-v1
-          path: salida/Temporizador_v1.apk
+          name: Temporizador-APK-v1.1
+          path: salida/Temporizador_v1_1.apk
           retention-days: 30
