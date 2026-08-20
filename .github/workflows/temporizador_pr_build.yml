@@ -1,0 +1,76 @@
+name: Build Temporizador PR
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    if: github.head_ref == 'temporizador-apk-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Android API 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Crear proyecto desde workflow base
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/temporizador.yml')
+          lines = p.read_text(encoding='utf-8').splitlines()
+          start = next(i for i,l in enumerate(lines) if '- name: Crear proyecto Android' in l)
+          run_i = next(i for i in range(start, len(lines)) if lines[i].strip() == 'run: |')
+          end = next(i for i in range(run_i + 1, len(lines)) if '- name: Compilar APK' in lines[i])
+          out=[]
+          for line in lines[run_i+1:end]:
+              out.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/crear.sh').write_text('\n'.join(out)+'\n', encoding='utf-8')
+          PY
+          bash /tmp/crear.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/cl/andres/temporizador/MainActivity.java')
+          s=p.read_text(encoding='utf-8')
+          needle='                  TextView title = text("TEMPORIZADOR", 18, TEXT, Typeface.BOLD);'
+          if 'setContentView(scroll);' not in s:
+              s=s.replace(needle,'                  setContentView(scroll);\n\n'+needle,1)
+          p.write_text(s,encoding='utf-8')
+          assert 'setContentView(scroll);' in s
+          PY
+
+      - name: Compilar APK corregido
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Preparar APK
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Temporizador_v1_1.apk
+          ls -lh Temporizador_v1_1.apk
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Temporizador_v1_1
+          path: Temporizador_v1_1.apk
+          retention-days: 7
