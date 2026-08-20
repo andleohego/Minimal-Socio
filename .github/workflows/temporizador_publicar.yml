@@ -65,17 +65,13 @@ jobs:
           from pathlib import Path
           p = Path('app/src/main/java/cl/andres/temporizador/MainActivity.java')
           s = p.read_text(encoding='utf-8')
-          marker = '''                  scroll.addView(root, new ScrollView.LayoutParams(
-                      ScrollView.LayoutParams.MATCH_PARENT,
-                      ScrollView.LayoutParams.WRAP_CONTENT
-                  ));
-'''
+          needle = '                  TextView title = text("TEMPORIZADOR", 18, TEXT, Typeface.BOLD);'
           if 'setContentView(scroll);' not in s:
-              if marker not in s:
-                  raise SystemExit('No se encontró dónde insertar setContentView')
-              s = s.replace(marker, marker + '\n                  setContentView(scroll);\n', 1)
+              if needle not in s:
+                  raise SystemExit('No se encontró el punto de inserción')
+              s = s.replace(needle, '                  setContentView(scroll);\n\n' + needle, 1)
           p.write_text(s, encoding='utf-8')
-          print('OK: interfaz vinculada con setContentView(scroll)')
+          print('OK: setContentView(scroll) insertado')
           PY
 
       - name: Compilar APK v1.1
