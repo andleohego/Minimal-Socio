@@ -1,0 +1,1 @@
+Forzar evento synchronize del PR para compilar Temporizador v1.1 corregido.
