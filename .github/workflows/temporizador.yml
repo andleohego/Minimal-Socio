@@ -1,0 +1,904 @@
+name: Compilar Temporizador APK v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - temporizador-apk-v1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Preparar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android API 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Crear proyecto Android
+        shell: bash
+        run: |
+          rm -rf app build.gradle settings.gradle gradle.properties
+          mkdir -p app/src/main/java/cl/andres/temporizador
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "Temporizador"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'cl.andres.temporizador'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "cl.andres.temporizador"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="Temporizador"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.Temporizador">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <receiver
+                      android:name=".AlarmReceiver"
+                      android:exported="false" />
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <resources>
+              <color name="black">#0B0D10</color>
+              <color name="white">#FFFFFF</color>
+              <color name="panel">#171A1F</color>
+              <color name="muted">#A9B0BA</color>
+              <color name="accent">#2DD4BF</color>
+              <color name="danger">#FF6B6B</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="Theme.Temporizador" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowBackground">@color/black</item>
+                  <item name="android:colorAccent">@color/accent</item>
+                  <item name="android:navigationBarColor">@color/black</item>
+                  <item name="android:statusBarColor">@color/black</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#2DD4BF" android:pathData="M48,16h12v10h-12z" />
+              <path android:fillColor="#2DD4BF" android:pathData="M34,22h40v8h-40z" />
+              <path android:fillColor="#2DD4BF" android:pathData="M54,30a32,32 0,1 0,0 64a32,32 0,1 0,0 -64M54,40a22,22 0,1 1,0 44a22,22 0,1 1,0 -44" />
+              <path android:fillColor="#FFFFFF" android:pathData="M51,43h6v15h-6zM54,55l13,10l-4,5l-13,-10z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'EOF'
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#0B0D10" />
+          </shape>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_notification.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M9,1h6v2H9zM7,3h10v2H7zM12,5a8,8 0,1 0,0 16a8,8 0,1 0,0 -16M11,8h2v5h-2zM12,12l4,3l-1.2,1.6l-4,-3z" />
+          </vector>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cat > app/src/main/java/cl/andres/temporizador/TimerScheduler.java <<'EOF'
+          package cl.andres.temporizador;
+
+          import android.app.AlarmManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Build;
+
+          public final class TimerScheduler {
+              private TimerScheduler() {}
+
+              public static PendingIntent alarmIntent(Context context) {
+                  Intent intent = new Intent(context, AlarmReceiver.class);
+                  return PendingIntent.getBroadcast(
+                      context,
+                      7001,
+                      intent,
+                      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                  );
+              }
+
+              public static void schedule(Context context, long endTimeMs) {
+                  AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                  PendingIntent pendingIntent = alarmIntent(context);
+                  if (alarmManager == null) return;
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                          alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endTimeMs, pendingIntent);
+                      } else {
+                          alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endTimeMs, pendingIntent);
+                      }
+                  } catch (SecurityException ex) {
+                      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endTimeMs, pendingIntent);
+                  }
+              }
+
+              public static void cancel(Context context) {
+                  AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                  if (alarmManager != null) {
+                      alarmManager.cancel(alarmIntent(context));
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/cl/andres/temporizador/AlarmReceiver.java <<'EOF'
+          package cl.andres.temporizador;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Color;
+          import android.media.AudioAttributes;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.VibrationEffect;
+          import android.os.Vibrator;
+          import android.os.VibratorManager;
+          import android.provider.Settings;
+
+          public class AlarmReceiver extends BroadcastReceiver {
+              private static final String CHANNEL_ID = "timer_finished_v1";
+
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  SharedPreferences prefs = context.getSharedPreferences("timer", Context.MODE_PRIVATE);
+                  prefs.edit()
+                      .putBoolean("running", false)
+                      .putLong("remaining", 0L)
+                      .putLong("end", 0L)
+                      .apply();
+
+                  NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (manager == null) return;
+
+                  Uri soundUri = Settings.System.DEFAULT_ALARM_ALERT_URI;
+                  if (soundUri == null) soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                          .setUsage(AudioAttributes.USAGE_ALARM)
+                          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                          .build();
+
+                      NotificationChannel channel = new NotificationChannel(
+                          CHANNEL_ID,
+                          "Temporizador finalizado",
+                          NotificationManager.IMPORTANCE_HIGH
+                      );
+                      channel.setDescription("Alarma del temporizador");
+                      channel.enableVibration(true);
+                      channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 900});
+                      channel.enableLights(true);
+                      channel.setLightColor(Color.WHITE);
+                      channel.setSound(soundUri, audioAttributes);
+                      manager.createNotificationChannel(channel);
+                  }
+
+                  Intent openIntent = new Intent(context, MainActivity.class);
+                  openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent contentIntent = PendingIntent.getActivity(
+                      context,
+                      7002,
+                      openIntent,
+                      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                  );
+
+                  Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                      ? new Notification.Builder(context, CHANNEL_ID)
+                      : new Notification.Builder(context);
+
+                  builder
+                      .setSmallIcon(R.drawable.ic_notification)
+                      .setContentTitle("¡Tiempo cumplido!")
+                      .setContentText("El temporizador llegó a 00:00:00")
+                      .setCategory(Notification.CATEGORY_ALARM)
+                      .setAutoCancel(true)
+                      .setContentIntent(contentIntent)
+                      .setPriority(Notification.PRIORITY_MAX)
+                      .setVisibility(Notification.VISIBILITY_PUBLIC);
+
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                      builder.setSound(soundUri);
+                      builder.setVibrate(new long[]{0, 500, 250, 500, 250, 900});
+                  }
+
+                  manager.notify(7003, builder.build());
+                  vibrateNow(context);
+              }
+
+              private void vibrateNow(Context context) {
+                  long[] pattern = new long[]{0, 450, 200, 450, 200, 800};
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                      VibratorManager vm = (VibratorManager) context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                      if (vm != null) {
+                          vm.getDefaultVibrator().vibrate(VibrationEffect.createWaveform(pattern, -1));
+                      }
+                  } else {
+                      Vibrator vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+                      if (vibrator != null && vibrator.hasVibrator()) {
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                              vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1));
+                          } else {
+                              vibrator.vibrate(pattern, -1);
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/cl/andres/temporizador/BootReceiver.java <<'EOF'
+          package cl.andres.temporizador;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+
+          public class BootReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
+
+                  SharedPreferences prefs = context.getSharedPreferences("timer", Context.MODE_PRIVATE);
+                  boolean running = prefs.getBoolean("running", false);
+                  long end = prefs.getLong("end", 0L);
+                  long now = System.currentTimeMillis();
+
+                  if (running && end > now) {
+                      TimerScheduler.schedule(context, end);
+                  } else if (running) {
+                      prefs.edit().putBoolean("running", false).putLong("remaining", 0L).putLong("end", 0L).apply();
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/cl/andres/temporizador/MainActivity.java <<'EOF'
+          package cl.andres.temporizador;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.app.NotificationManager;
+          import android.content.Context;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.text.InputFilter;
+          import android.text.InputType;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.inputmethod.InputMethodManager;
+          import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import java.util.Locale;
+
+          public class MainActivity extends Activity {
+              private static final int BG = Color.rgb(11, 13, 16);
+              private static final int PANEL = Color.rgb(23, 26, 31);
+              private static final int TEXT = Color.WHITE;
+              private static final int MUTED = Color.rgb(169, 176, 186);
+              private static final int ACCENT = Color.rgb(45, 212, 191);
+              private static final int DANGER = Color.rgb(255, 107, 107);
+
+              private SharedPreferences prefs;
+              private TextView display;
+              private TextView status;
+              private EditText hoursInput;
+              private EditText minutesInput;
+              private EditText secondsInput;
+              private Button startButton;
+              private Button pauseButton;
+              private Button resetButton;
+
+              private boolean running;
+              private long endTimeMs;
+              private long remainingMs;
+
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private final Runnable ticker = new Runnable() {
+                  @Override
+                  public void run() {
+                      refreshClock();
+                      handler.postDelayed(this, 250L);
+                  }
+              };
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setStatusBarColor(BG);
+                  getWindow().setNavigationBarColor(BG);
+                  prefs = getSharedPreferences("timer", MODE_PRIVATE);
+                  buildUi();
+                  requestNotificationsIfNeeded();
+                  restoreState();
+                  handler.post(ticker);
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  if (prefs != null) restoreState();
+              }
+
+              @Override
+              protected void onDestroy() {
+                  handler.removeCallbacks(ticker);
+                  super.onDestroy();
+              }
+
+              private void buildUi() {
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setFillViewport(true);
+                  scroll.setBackgroundColor(BG);
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(dp(20), dp(22), dp(20), dp(28));
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  scroll.addView(root, new ScrollView.LayoutParams(
+                      ScrollView.LayoutParams.MATCH_PARENT,
+                      ScrollView.LayoutParams.WRAP_CONTENT
+                  ));
+
+                  TextView title = text("TEMPORIZADOR", 18, TEXT, Typeface.BOLD);
+                  title.setLetterSpacing(0.12f);
+                  root.addView(title, wrapCentered());
+
+                  TextView subtitle = text("Simple, grande y rápido", 14, MUTED, Typeface.NORMAL);
+                  LinearLayout.LayoutParams subtitleLp = wrapCentered();
+                  subtitleLp.topMargin = dp(4);
+                  root.addView(subtitle, subtitleLp);
+
+                  display = text("00:05:00", 54, TEXT, Typeface.BOLD);
+                  display.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams displayLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(110)
+                  );
+                  displayLp.topMargin = dp(22);
+                  root.addView(display, displayLp);
+
+                  status = text("LISTO", 14, ACCENT, Typeface.BOLD);
+                  status.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams statusLp = wrapCentered();
+                  statusLp.bottomMargin = dp(22);
+                  root.addView(status, statusLp);
+
+                  LinearLayout inputs = new LinearLayout(this);
+                  inputs.setOrientation(LinearLayout.HORIZONTAL);
+                  inputs.setGravity(Gravity.CENTER);
+                  inputs.setPadding(dp(12), dp(14), dp(12), dp(14));
+                  inputs.setBackgroundColor(PANEL);
+                  root.addView(inputs, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  ));
+
+                  hoursInput = timeInput("00", "HORAS");
+                  minutesInput = timeInput("05", "MIN");
+                  secondsInput = timeInput("00", "SEG");
+                  inputs.addView(inputGroup("HORAS", hoursInput), weighted());
+                  inputs.addView(separator(), new LinearLayout.LayoutParams(dp(18), dp(72)));
+                  inputs.addView(inputGroup("MIN", minutesInput), weighted());
+                  inputs.addView(separator(), new LinearLayout.LayoutParams(dp(18), dp(72)));
+                  inputs.addView(inputGroup("SEG", secondsInput), weighted());
+
+                  TextView quickLabel = text("TIEMPOS RÁPIDOS", 13, MUTED, Typeface.BOLD);
+                  LinearLayout.LayoutParams quickLabelLp = wrapLeft();
+                  quickLabelLp.topMargin = dp(22);
+                  quickLabelLp.bottomMargin = dp(10);
+                  root.addView(quickLabel, quickLabelLp);
+
+                  LinearLayout quick1 = horizontalRow();
+                  root.addView(quick1, fullWidthWrap());
+                  addPreset(quick1, "1 min", 60_000L);
+                  addPreset(quick1, "5 min", 5 * 60_000L);
+                  addPreset(quick1, "10 min", 10 * 60_000L);
+
+                  LinearLayout quick2 = horizontalRow();
+                  LinearLayout.LayoutParams quick2Lp = fullWidthWrap();
+                  quick2Lp.topMargin = dp(8);
+                  root.addView(quick2, quick2Lp);
+                  addPreset(quick2, "15 min", 15 * 60_000L);
+                  addPreset(quick2, "30 min", 30 * 60_000L);
+                  addPreset(quick2, "60 min", 60 * 60_000L);
+
+                  startButton = actionButton("INICIAR", ACCENT, Color.BLACK);
+                  LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(58)
+                  );
+                  startLp.topMargin = dp(24);
+                  root.addView(startButton, startLp);
+
+                  LinearLayout controls = horizontalRow();
+                  LinearLayout.LayoutParams controlsLp = fullWidthWrap();
+                  controlsLp.topMargin = dp(10);
+                  root.addView(controls, controlsLp);
+
+                  pauseButton = actionButton("PAUSAR", PANEL, TEXT);
+                  resetButton = actionButton("REINICIAR", PANEL, DANGER);
+                  controls.addView(pauseButton, weightedButton());
+                  LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(dp(10), dp(1));
+                  controls.addView(new View(this), gap);
+                  controls.addView(resetButton, weightedButton());
+
+                  TextView hint = text(
+                      "La alarma queda programada aunque bloquees la pantalla. Al llegar a cero recibirás sonido y vibración.",
+                      13,
+                      MUTED,
+                      Typeface.NORMAL
+                  );
+                  hint.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+                  hintLp.topMargin = dp(18);
+                  root.addView(hint, hintLp);
+
+                  startButton.setOnClickListener(v -> {
+                      hideKeyboard();
+                      if (running) return;
+                      long selected = readInputDuration();
+                      if (selected <= 0L) {
+                          if (remainingMs > 0L) selected = remainingMs;
+                          else {
+                              Toast.makeText(this, "Ingresa un tiempo mayor que cero", Toast.LENGTH_SHORT).show();
+                              return;
+                          }
+                      }
+                      startTimer(selected);
+                  });
+
+                  pauseButton.setOnClickListener(v -> {
+                      hideKeyboard();
+                      if (running) pauseTimer();
+                      else if (remainingMs > 0L) startTimer(remainingMs);
+                  });
+
+                  resetButton.setOnClickListener(v -> resetTimer());
+              }
+
+              private void requestNotificationsIfNeeded() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);
+                  }
+              }
+
+              private void restoreState() {
+                  running = prefs.getBoolean("running", false);
+                  endTimeMs = prefs.getLong("end", 0L);
+                  remainingMs = prefs.getLong("remaining", 5 * 60_000L);
+
+                  if (running) {
+                      long nowRemaining = endTimeMs - System.currentTimeMillis();
+                      if (nowRemaining <= 0L) {
+                          running = false;
+                          remainingMs = 0L;
+                          endTimeMs = 0L;
+                          saveState();
+                      } else {
+                          remainingMs = nowRemaining;
+                      }
+                  }
+
+                  setInputsFromMillis(remainingMs);
+                  refreshClock();
+              }
+
+              private void startTimer(long durationMs) {
+                  if (durationMs <= 0L) return;
+                  remainingMs = durationMs;
+                  endTimeMs = System.currentTimeMillis() + durationMs;
+                  running = true;
+                  saveState();
+                  TimerScheduler.schedule(this, endTimeMs);
+                  refreshClock();
+              }
+
+              private void pauseTimer() {
+                  if (!running) return;
+                  remainingMs = Math.max(0L, endTimeMs - System.currentTimeMillis());
+                  running = false;
+                  endTimeMs = 0L;
+                  TimerScheduler.cancel(this);
+                  saveState();
+                  setInputsFromMillis(remainingMs);
+                  refreshClock();
+              }
+
+              private void resetTimer() {
+                  TimerScheduler.cancel(this);
+                  NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null) nm.cancel(7003);
+                  running = false;
+                  endTimeMs = 0L;
+                  remainingMs = 5 * 60_000L;
+                  saveState();
+                  setInputsFromMillis(remainingMs);
+                  refreshClock();
+              }
+
+              private void applyPreset(long durationMs) {
+                  TimerScheduler.cancel(this);
+                  running = false;
+                  endTimeMs = 0L;
+                  remainingMs = durationMs;
+                  saveState();
+                  setInputsFromMillis(durationMs);
+                  refreshClock();
+              }
+
+              private void refreshClock() {
+                  long shown = remainingMs;
+                  if (running) {
+                      shown = Math.max(0L, endTimeMs - System.currentTimeMillis());
+                      remainingMs = shown;
+                      if (shown <= 0L) {
+                          running = false;
+                          endTimeMs = 0L;
+                          saveState();
+                      }
+                  }
+
+                  display.setText(formatDuration(shown));
+                  if (running) {
+                      status.setText("EN CURSO");
+                      status.setTextColor(ACCENT);
+                      startButton.setText("EN CURSO");
+                      startButton.setEnabled(false);
+                      startButton.setAlpha(0.45f);
+                      pauseButton.setText("PAUSAR");
+                      setInputsEnabled(false);
+                  } else if (shown > 0L && shown != 5 * 60_000L) {
+                      status.setText("PAUSADO / LISTO");
+                      status.setTextColor(MUTED);
+                      startButton.setText("INICIAR");
+                      startButton.setEnabled(true);
+                      startButton.setAlpha(1f);
+                      pauseButton.setText("CONTINUAR");
+                      setInputsEnabled(true);
+                  } else {
+                      status.setText("LISTO");
+                      status.setTextColor(ACCENT);
+                      startButton.setText("INICIAR");
+                      startButton.setEnabled(true);
+                      startButton.setAlpha(1f);
+                      pauseButton.setText("PAUSAR");
+                      setInputsEnabled(true);
+                  }
+              }
+
+              private long readInputDuration() {
+                  int h = parseInt(hoursInput.getText().toString());
+                  int m = Math.min(59, parseInt(minutesInput.getText().toString()));
+                  int s = Math.min(59, parseInt(secondsInput.getText().toString()));
+                  h = Math.min(99, h);
+                  return (h * 3600L + m * 60L + s) * 1000L;
+              }
+
+              private void setInputsFromMillis(long millis) {
+                  long totalSeconds = Math.max(0L, millis) / 1000L;
+                  long h = Math.min(99L, totalSeconds / 3600L);
+                  long m = (totalSeconds % 3600L) / 60L;
+                  long s = totalSeconds % 60L;
+                  hoursInput.setText(String.format(Locale.US, "%02d", h));
+                  minutesInput.setText(String.format(Locale.US, "%02d", m));
+                  secondsInput.setText(String.format(Locale.US, "%02d", s));
+              }
+
+              private void setInputsEnabled(boolean enabled) {
+                  hoursInput.setEnabled(enabled);
+                  minutesInput.setEnabled(enabled);
+                  secondsInput.setEnabled(enabled);
+              }
+
+              private void saveState() {
+                  prefs.edit()
+                      .putBoolean("running", running)
+                      .putLong("end", endTimeMs)
+                      .putLong("remaining", remainingMs)
+                      .apply();
+              }
+
+              private String formatDuration(long millis) {
+                  long totalSeconds = (millis + 999L) / 1000L;
+                  long h = totalSeconds / 3600L;
+                  long m = (totalSeconds % 3600L) / 60L;
+                  long s = totalSeconds % 60L;
+                  return String.format(Locale.US, "%02d:%02d:%02d", h, m, s);
+              }
+
+              private int parseInt(String value) {
+                  try { return Integer.parseInt(value.trim()); }
+                  catch (Exception ex) { return 0; }
+              }
+
+              private void addPreset(LinearLayout parent, String label, long millis) {
+                  Button button = actionButton(label, PANEL, TEXT);
+                  button.setTextSize(14);
+                  button.setOnClickListener(v -> applyPreset(millis));
+                  parent.addView(button, weightedButton());
+              }
+
+              private EditText timeInput(String value, String hint) {
+                  EditText input = new EditText(this);
+                  input.setText(value);
+                  input.setHint(hint);
+                  input.setTextColor(TEXT);
+                  input.setHintTextColor(MUTED);
+                  input.setTextSize(28);
+                  input.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                  input.setGravity(Gravity.CENTER);
+                  input.setSelectAllOnFocus(true);
+                  input.setInputType(InputType.TYPE_CLASS_NUMBER);
+                  input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(2)});
+                  input.setBackgroundColor(Color.TRANSPARENT);
+                  input.setPadding(0, 0, 0, 0);
+                  return input;
+              }
+
+              private LinearLayout inputGroup(String label, EditText input) {
+                  LinearLayout group = new LinearLayout(this);
+                  group.setOrientation(LinearLayout.VERTICAL);
+                  group.setGravity(Gravity.CENTER);
+                  group.addView(input, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(42)
+                  ));
+                  TextView l = text(label, 11, MUTED, Typeface.BOLD);
+                  l.setGravity(Gravity.CENTER);
+                  group.addView(l, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(22)
+                  ));
+                  return group;
+              }
+
+              private TextView separator() {
+                  TextView colon = text(":", 30, MUTED, Typeface.BOLD);
+                  colon.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                  return colon;
+              }
+
+              private Button actionButton(String label, int backgroundColor, int textColor) {
+                  Button button = new Button(this);
+                  button.setText(label);
+                  button.setTextColor(textColor);
+                  button.setTextSize(16);
+                  button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                  button.setBackgroundColor(backgroundColor);
+                  button.setAllCaps(false);
+                  button.setGravity(Gravity.CENTER);
+                  button.setPadding(dp(8), 0, dp(8), 0);
+                  return button;
+              }
+
+              private TextView text(String value, int sp, int color, int style) {
+                  TextView t = new TextView(this);
+                  t.setText(value);
+                  t.setTextSize(sp);
+                  t.setTextColor(color);
+                  t.setTypeface(Typeface.DEFAULT, style);
+                  return t;
+              }
+
+              private LinearLayout horizontalRow() {
+                  LinearLayout row = new LinearLayout(this);
+                  row.setOrientation(LinearLayout.HORIZONTAL);
+                  row.setGravity(Gravity.CENTER);
+                  return row;
+              }
+
+              private LinearLayout.LayoutParams weighted() {
+                  return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+              }
+
+              private LinearLayout.LayoutParams weightedButton() {
+                  return new LinearLayout.LayoutParams(0, dp(52), 1f);
+              }
+
+              private LinearLayout.LayoutParams fullWidthWrap() {
+                  return new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+              }
+
+              private LinearLayout.LayoutParams wrapCentered() {
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+                  lp.gravity = Gravity.CENTER_HORIZONTAL;
+                  return lp;
+              }
+
+              private LinearLayout.LayoutParams wrapLeft() {
+                  return new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+              }
+
+              private int dp(int value) {
+                  return Math.round(value * getResources().getDisplayMetrics().density);
+              }
+
+              private void hideKeyboard() {
+                  View view = getCurrentFocus();
+                  if (view != null) {
+                      InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                      if (imm != null) imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+                      view.clearFocus();
+                  }
+              }
+          }
+          EOF
+
+      - name: Compilar APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Preparar APK
+        shell: bash
+        run: |
+          mkdir -p salida
+          cp app/build/outputs/apk/debug/app-debug.apk salida/Temporizador_v1.apk
+          ls -lh salida/Temporizador_v1.apk
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Temporizador-APK-v1
+          path: salida/Temporizador_v1.apk
+          retention-days: 30
