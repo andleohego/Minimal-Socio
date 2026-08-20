@@ -50,11 +50,15 @@ jobs:
           bash /tmp/crear.sh
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p=Path('app/src/main/java/cl/andres/temporizador/MainActivity.java')
           s=p.read_text(encoding='utf-8')
-          needle='                  TextView title = text("TEMPORIZADOR", 18, TEXT, Typeface.BOLD);'
           if 'setContentView(scroll);' not in s:
-              s=s.replace(needle,'                  setContentView(scroll);\n\n'+needle,1)
+              pattern=r'(?m)^(\s*)TextView title = text\("TEMPORIZADOR", 18, TEXT, Typeface\.BOLD\);'
+              repl=r'\1setContentView(scroll);\n\n\1TextView title = text("TEMPORIZADOR", 18, TEXT, Typeface.BOLD);'
+              s,n=re.subn(pattern,repl,s,count=1)
+              if n != 1:
+                  raise SystemExit('No se encontró la línea del título para insertar setContentView')
           p.write_text(s,encoding='utf-8')
           assert 'setContentView(scroll);' in s
           PY
