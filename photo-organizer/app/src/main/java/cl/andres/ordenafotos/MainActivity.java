@@ -8,12 +8,14 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
@@ -33,34 +35,51 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int REQ_READ = 1001;
     private static final int REQ_WRITE = 1002;
-    private static final int WRITE_BATCH = 500;
+    private static final int WRITE_BATCH = 1900;
     private static final String ROOT_FOLDER = "OrdenaFotos";
+
+    private static final String K_MOVE_REQUESTED = "move_requested";
+    private static final String K_MOVE_MOVED = "move_moved";
+    private static final String K_MOVE_FAILED = "move_failed";
+    private static final String K_MOVE_DENIED = "move_denied";
+    private static final String K_BY_DATE = "by_date";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<AnalysisDb.ResultRow> previewRows = new ArrayList<>();
     private final ArrayList<ArrayList<AnalysisDb.ResultRow>> moveBatches = new ArrayList<>();
+    private final ExecutorService statsExecutor = Executors.newSingleThreadExecutor();
 
     private SharedPreferences prefs;
     private AnalysisDb db;
     private ProgressBar progress;
     private TextView status;
     private TextView summary;
+    private TextView moveStatus;
     private Button startButton;
     private Button pauseButton;
     private Button stopButton;
     private Button resetButton;
     private Button applyButton;
+    private Button openFolderButton;
     private CheckBox byDate;
     private PreviewAdapter adapter;
 
     private int currentBatch = -1;
     private int moved = 0;
+    private int failed = 0;
+    private int denied = 0;
     private int requestedMoves = 0;
+    private int physicalOrganized = 0;
     private boolean organizeByDate = false;
+    private boolean movingOrder = false;
+    private volatile boolean physicalCountBusy = false;
+    private long lastPhysicalRefresh = 0L;
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
@@ -75,6 +94,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(AnalysisService.PREFS, MODE_PRIVATE);
         db = new AnalysisDb(this);
         buildUi();
+        refreshPhysicalCountAsync();
         refreshState();
     }
 
@@ -83,6 +103,7 @@ public class MainActivity extends Activity {
         super.onResume();
         handler.removeCallbacks(refreshRunnable);
         handler.post(refreshRunnable);
+        refreshPhysicalCountAsync();
     }
 
     @Override
@@ -94,6 +115,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacks(refreshRunnable);
+        statsExecutor.shutdownNow();
         db.close();
         super.onDestroy();
     }
@@ -104,9 +126,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(14), dp(12), dp(14), dp(10));
         root.setBackgroundColor(0xFFF5F7F8);
 
-        TextView title = text("OrdenaFotos Socio v1.1", 25, 0xFF102027, true);
+        TextView title = text("OrdenaFotos Socio v1.2", 25, 0xFF102027, true);
         root.addView(title);
-        TextView subtitle = text("Modo trabajo pesado • guarda cada foto • continúa con pantalla bloqueada", 14, 0xFF455A64, false);
+        TextView subtitle = text("Análisis persistente • ordenado controlado • diagnóstico de carpeta", 14, 0xFF455A64, false);
         subtitle.setPadding(0, dp(3), 0, dp(9));
         root.addView(subtitle);
 
@@ -119,8 +141,12 @@ public class MainActivity extends Activity {
         root.addView(status);
 
         summary = text("", 13, 0xFF00695C, false);
-        summary.setPadding(0, 0, 0, dp(8));
+        summary.setPadding(0, 0, 0, dp(6));
         root.addView(summary);
+
+        moveStatus = text("", 13, 0xFF37474F, true);
+        moveStatus.setPadding(0, dp(2), 0, dp(7));
+        root.addView(moveStatus);
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
@@ -143,12 +169,18 @@ public class MainActivity extends Activity {
         byDate = new CheckBox(this);
         byDate.setText("Al ordenar, separar además por año/mes");
         byDate.setTextColor(0xFF263238);
+        byDate.setChecked(prefs.getBoolean(K_BY_DATE, false));
+        byDate.setOnCheckedChangeListener((buttonView, isChecked) ->
+                prefs.edit().putBoolean(K_BY_DATE, isChecked).apply());
         root.addView(byDate);
 
         applyButton = button("Aplicar orden a las fotos seguras", v -> prepareMove());
         root.addView(applyButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView note = text("Vista previa: últimas 150 analizadas. Desmarca una si no quieres moverla.", 12, 0xFF607D8B, false);
+        openFolderButton = button("Abrir carpeta OrdenaFotos", v -> openOrderFolder());
+        root.addView(openFolderButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView note = text("Vista previa: últimas 150 analizadas. Las ya movidas quedan desmarcadas.", 12, 0xFF607D8B, false);
         note.setPadding(0, dp(7), 0, dp(4));
         root.addView(note);
 
@@ -161,6 +193,10 @@ public class MainActivity extends Activity {
     }
 
     private void requestAndStart(boolean clear) {
+        if (movingOrder) {
+            Toast.makeText(this, "Termina primero el ordenado en curso.", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (hasFullReadPermission()) {
             startAnalysisService(clear);
             requestNotificationPermissionIfNeeded();
@@ -191,7 +227,7 @@ public class MainActivity extends Activity {
             } else {
                 new AlertDialog.Builder(this)
                         .setTitle("Necesito acceso a todas las fotos")
-                        .setMessage("Para analizar más de 20.000 imágenes debes elegir “Permitir todas las fotos”. Con acceso limitado Android solo entrega las fotos seleccionadas.")
+                        .setMessage("Para analizar toda la galería debes elegir “Permitir todas las fotos”. Con acceso limitado Android solo entrega las fotos seleccionadas.")
                         .setPositiveButton("Entendido", null).show();
             }
         }
@@ -221,13 +257,13 @@ public class MainActivity extends Activity {
 
     private void sendServiceAction(String action) {
         Intent i = new Intent(this, AnalysisService.class).setAction(action);
-        if (Build.VERSION.SDK_INT >= 26 && (AnalysisService.ACTION_RESUME.equals(action))) startForegroundService(i);
+        if (Build.VERSION.SDK_INT >= 26 && AnalysisService.ACTION_RESUME.equals(action)) startForegroundService(i);
         else startService(i);
     }
 
     private void confirmReset() {
-        if (prefs.getBoolean("running", false)) {
-            Toast.makeText(this, "Detén el análisis antes de reiniciarlo desde cero.", Toast.LENGTH_LONG).show();
+        if (prefs.getBoolean("running", false) || movingOrder) {
+            Toast.makeText(this, "Detén el proceso antes de reiniciarlo desde cero.", Toast.LENGTH_LONG).show();
             return;
         }
         new AlertDialog.Builder(this)
@@ -252,7 +288,8 @@ public class MainActivity extends Activity {
         int selected = db.countSelected();
         Map<String, Integer> counts = db.categoryCounts();
         StringBuilder sb = new StringBuilder();
-        sb.append("Guardadas: ").append(db.count()).append("  •  Seguras para ordenar: ").append(selected);
+        sb.append("Guardadas: ").append(db.count()).append("  •  Pendientes seguras: ").append(selected);
+        sb.append("\nEn Pictures/OrdenaFotos: ").append(physicalOrganized);
         int shown = 0;
         for (Map.Entry<String, Integer> e : counts.entrySet()) {
             if (shown++ >= 6) break;
@@ -260,14 +297,31 @@ public class MainActivity extends Activity {
         }
         summary.setText(sb.toString());
 
-        startButton.setEnabled(!running || paused);
-        pauseButton.setEnabled(running);
+        if (!movingOrder) {
+            int lr = prefs.getInt(K_MOVE_REQUESTED, 0);
+            int lm = prefs.getInt(K_MOVE_MOVED, 0);
+            int lf = prefs.getInt(K_MOVE_FAILED, 0);
+            int ld = prefs.getInt(K_MOVE_DENIED, 0);
+            if (lr > 0) {
+                moveStatus.setText("Último orden: movidas " + lm + " • fallidas " + lf +
+                        " • no autorizadas " + ld + " • pendientes ahora " + selected);
+            } else {
+                moveStatus.setText("Carpeta destino: Almacenamiento interno/Pictures/OrdenaFotos");
+            }
+        }
+
+        startButton.setEnabled((!running || paused) && !movingOrder);
+        pauseButton.setEnabled(running && !movingOrder);
         pauseButton.setText(paused ? "Continuar" : "Pausar");
-        stopButton.setEnabled(running);
-        resetButton.setEnabled(!running);
-        applyButton.setEnabled(!running && selected > 0);
+        stopButton.setEnabled(running && !movingOrder);
+        resetButton.setEnabled(!running && !movingOrder);
+        applyButton.setEnabled(!running && selected > 0 && !movingOrder);
+        byDate.setEnabled(!movingOrder);
 
         if (!running || previewRows.isEmpty() || done % 25 == 0) refreshPreview();
+
+        long now = System.currentTimeMillis();
+        if (!running && now - lastPhysicalRefresh > 5000L) refreshPhysicalCountAsync();
     }
 
     private void refreshPreview() {
@@ -278,37 +332,62 @@ public class MainActivity extends Activity {
 
     private void prepareMove() {
         if (prefs.getBoolean("running", false)) {
-            Toast.makeText(this, "Detén o espera a que termine el análisis antes de mover fotos.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Espera a que termine el análisis antes de mover fotos.", Toast.LENGTH_LONG).show();
             return;
         }
+        if (movingOrder) return;
+
         List<AnalysisDb.ResultRow> selected = db.selectedRows();
         if (selected.isEmpty()) {
-            Toast.makeText(this, "No hay fotos marcadas para ordenar.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No quedan fotos seguras pendientes de ordenar.", Toast.LENGTH_SHORT).show();
+            refreshPhysicalCountAsync();
             return;
         }
+
         organizeByDate = byDate.isChecked();
         moveBatches.clear();
         for (int i = 0; i < selected.size(); i += WRITE_BATCH) {
             moveBatches.add(new ArrayList<>(selected.subList(i, Math.min(selected.size(), i + WRITE_BATCH))));
         }
+
         moved = 0;
+        failed = 0;
+        denied = 0;
         requestedMoves = selected.size();
         currentBatch = 0;
+        prefs.edit()
+                .putInt(K_MOVE_REQUESTED, requestedMoves)
+                .putInt(K_MOVE_MOVED, 0)
+                .putInt(K_MOVE_FAILED, 0)
+                .putInt(K_MOVE_DENIED, 0)
+                .apply();
+
+        int prompts = moveBatches.size();
         new AlertDialog.Builder(this)
                 .setTitle("Ordenar " + selected.size() + " fotos")
-                .setMessage("Android pedirá autorización por lotes. No se borrará ninguna foto. Las dudosas no están seleccionadas.")
+                .setMessage("Se usarán " + prompts + " lotes como máximo. Android pedirá autorización para cada lote.\n\n" +
+                        "Destino: Pictures/OrdenaFotos/\n" +
+                        (organizeByDate ? "Con subcarpetas por año/mes.\n\n" : "Sin separar por fecha.\n\n") +
+                        "No se borrará ninguna foto. Si un lote falla o se cancela, queda pendiente para reintentar.")
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Continuar", (d, w) -> requestCurrentWriteBatch())
+                .setPositiveButton("Comenzar orden", (d, w) -> {
+                    movingOrder = true;
+                    requestCurrentWriteBatch();
+                })
                 .show();
     }
 
     private void requestCurrentWriteBatch() {
         if (currentBatch < 0 || currentBatch >= moveBatches.size()) {
-            Toast.makeText(this, "Orden terminado: " + moved + " de " + requestedMoves + " movidas.", Toast.LENGTH_LONG).show();
-            refreshState();
+            finishMoveSession();
             return;
         }
+
         ArrayList<AnalysisDb.ResultRow> batch = moveBatches.get(currentBatch);
+        moveStatus.setText("Ordenando lote " + (currentBatch + 1) + " de " + moveBatches.size() +
+                " • " + batch.size() + " fotos\nMovidas: " + moved + " • Fallidas: " + failed +
+                " • No autorizadas: " + denied + " • Pendientes: " + db.countSelected());
+
         if (Build.VERSION.SDK_INT >= 30) {
             Collection<Uri> uris = new ArrayList<>();
             for (AnalysisDb.ResultRow r : batch) uris.add(Uri.parse(r.uri));
@@ -316,7 +395,11 @@ public class MainActivity extends Activity {
                 PendingIntent pi = MediaStore.createWriteRequest(getContentResolver(), uris);
                 startIntentSenderForResult(pi.getIntentSender(), REQ_WRITE, null, 0, 0, 0);
             } catch (Exception e) {
-                Toast.makeText(this, "No pude pedir permiso para mover este lote: " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
+                failed += batch.size();
+                saveMoveCounters();
+                Toast.makeText(this, "No pude pedir permiso para el lote " + (currentBatch + 1) + ": " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
+                currentBatch++;
+                requestCurrentWriteBatch();
             }
         } else {
             moveCurrentBatch();
@@ -329,8 +412,15 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_WRITE) {
-            if (resultCode == RESULT_OK) moveCurrentBatch();
-            else Toast.makeText(this, "Lote omitido porque no se autorizó.", Toast.LENGTH_SHORT).show();
+            if (currentBatch >= 0 && currentBatch < moveBatches.size()) {
+                if (resultCode == RESULT_OK) {
+                    moveCurrentBatch();
+                } else {
+                    denied += moveBatches.get(currentBatch).size();
+                    saveMoveCounters();
+                    Toast.makeText(this, "Lote " + (currentBatch + 1) + " no autorizado; queda pendiente.", Toast.LENGTH_SHORT).show();
+                }
+            }
             currentBatch++;
             requestCurrentWriteBatch();
         }
@@ -346,9 +436,45 @@ public class MainActivity extends Activity {
                 if (n > 0) {
                     moved++;
                     db.setSelected(r.mediaId, false);
+                } else {
+                    failed++;
                 }
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                failed++;
+            }
         }
+        saveMoveCounters();
+        refreshPhysicalCountAsync();
+        refreshPreview();
+    }
+
+    private void saveMoveCounters() {
+        prefs.edit()
+                .putInt(K_MOVE_REQUESTED, requestedMoves)
+                .putInt(K_MOVE_MOVED, moved)
+                .putInt(K_MOVE_FAILED, failed)
+                .putInt(K_MOVE_DENIED, denied)
+                .apply();
+    }
+
+    private void finishMoveSession() {
+        movingOrder = false;
+        saveMoveCounters();
+        refreshPhysicalCountAsync();
+        int pending = db.countSelected();
+        refreshPreview();
+        refreshState();
+
+        new AlertDialog.Builder(this)
+                .setTitle("Ordenado finalizado")
+                .setMessage("Movidas: " + moved + " de " + requestedMoves +
+                        "\nFallidas: " + failed +
+                        "\nNo autorizadas: " + denied +
+                        "\nPendientes para reintentar: " + pending +
+                        "\n\nCarpeta: Almacenamiento interno/Pictures/OrdenaFotos")
+                .setNegativeButton("Cerrar", null)
+                .setPositiveButton("Abrir carpeta", (d, w) -> openOrderFolder())
+                .show();
     }
 
     private String destinationFor(AnalysisDb.ResultRow r) {
@@ -359,6 +485,50 @@ public class MainActivity extends Activity {
         int year = c.get(Calendar.YEAR);
         int month = c.get(Calendar.MONTH) + 1;
         return base + year + "/" + String.format(Locale.ROOT, "%02d", month) + "/";
+    }
+
+    private void refreshPhysicalCountAsync() {
+        if (physicalCountBusy || statsExecutor.isShutdown()) return;
+        physicalCountBusy = true;
+        lastPhysicalRefresh = System.currentTimeMillis();
+        statsExecutor.execute(() -> {
+            int count = 0;
+            try {
+                Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);
+                String selection = MediaStore.Images.Media.RELATIVE_PATH + " LIKE ?";
+                String[] args = {Environment.DIRECTORY_PICTURES + "/" + ROOT_FOLDER + "/%"};
+                try (Cursor c = getContentResolver().query(collection,
+                        new String[]{MediaStore.Images.Media._ID}, selection, args, null)) {
+                    if (c != null) count = c.getCount();
+                }
+            } catch (Exception ignored) { }
+            final int finalCount = count;
+            physicalOrganized = finalCount;
+            physicalCountBusy = false;
+            runOnUiThread(() -> {
+                if (!isFinishing()) refreshState();
+            });
+        });
+    }
+
+    private void openOrderFolder() {
+        Uri folderUri = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:" + Environment.DIRECTORY_PICTURES + "/" + ROOT_FOLDER);
+        try {
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR);
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivity(view);
+        } catch (Exception first) {
+            try {
+                Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                if (Build.VERSION.SDK_INT >= 26) picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI, folderUri);
+                startActivity(picker);
+            } catch (Exception second) {
+                Toast.makeText(this, "Abre Archivos > Almacenamiento interno > Pictures > OrdenaFotos.", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private String sanitize(String s) {
@@ -404,6 +574,7 @@ public class MainActivity extends Activity {
 
             CheckBox check = new CheckBox(MainActivity.this);
             check.setChecked(r.selected);
+            check.setEnabled(!movingOrder);
             check.setOnCheckedChangeListener((buttonView, isChecked) -> db.setSelected(r.mediaId, isChecked));
             row.addView(check);
 
