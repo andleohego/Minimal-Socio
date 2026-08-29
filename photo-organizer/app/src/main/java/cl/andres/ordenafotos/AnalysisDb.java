@@ -1,0 +1,160 @@
+package cl.andres.ordenafotos;
+
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public class AnalysisDb extends SQLiteOpenHelper {
+    private static final String DB_NAME = "ordenafotos.db";
+    private static final int DB_VERSION = 1;
+
+    public AnalysisDb(Context context) {
+        super(context, DB_NAME, null, DB_VERSION);
+    }
+
+    @Override
+    public void onCreate(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE results (" +
+                "media_id INTEGER PRIMARY KEY," +
+                "uri TEXT NOT NULL," +
+                "display_name TEXT," +
+                "relative_path TEXT," +
+                "date_taken INTEGER," +
+                "category TEXT NOT NULL," +
+                "confidence REAL NOT NULL," +
+                "selected INTEGER NOT NULL," +
+                "reason TEXT," +
+                "analyzed_at INTEGER NOT NULL" +
+                ")");
+        db.execSQL("CREATE INDEX idx_results_category ON results(category)");
+        db.execSQL("CREATE INDEX idx_results_selected ON results(selected)");
+    }
+
+    @Override
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        db.execSQL("DROP TABLE IF EXISTS results");
+        onCreate(db);
+    }
+
+    public synchronized void save(ResultRow row) {
+        ContentValues v = new ContentValues();
+        v.put("media_id", row.mediaId);
+        v.put("uri", row.uri);
+        v.put("display_name", row.name);
+        v.put("relative_path", row.path);
+        v.put("date_taken", row.taken);
+        v.put("category", row.category);
+        v.put("confidence", row.confidence);
+        v.put("selected", row.selected ? 1 : 0);
+        v.put("reason", row.reason);
+        v.put("analyzed_at", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict("results", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public synchronized Set<Long> loadProcessedIds() {
+        HashSet<Long> out = new HashSet<>();
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT media_id FROM results", null)) {
+            while (c.moveToNext()) out.add(c.getLong(0));
+        }
+        return out;
+    }
+
+    public synchronized int count() {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM results", null)) {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        }
+    }
+
+    public synchronized int countSelected() {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM results WHERE selected=1", null)) {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        }
+    }
+
+    public synchronized Map<String, Integer> categoryCounts() {
+        HashMap<String, Integer> out = new HashMap<>();
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT category, COUNT(*) FROM results GROUP BY category ORDER BY COUNT(*) DESC", null)) {
+            while (c.moveToNext()) out.put(c.getString(0), c.getInt(1));
+        }
+        return out;
+    }
+
+    public synchronized List<ResultRow> latest(int limit) {
+        ArrayList<ResultRow> out = new ArrayList<>();
+        String sql = "SELECT media_id,uri,display_name,relative_path,date_taken,category,confidence,selected,reason " +
+                "FROM results ORDER BY analyzed_at DESC LIMIT " + Math.max(1, Math.min(limit, 500));
+        try (Cursor c = getReadableDatabase().rawQuery(sql, null)) {
+            while (c.moveToNext()) out.add(fromCursor(c));
+        }
+        return out;
+    }
+
+    public synchronized List<ResultRow> selectedRows() {
+        ArrayList<ResultRow> out = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT media_id,uri,display_name,relative_path,date_taken,category,confidence,selected,reason " +
+                        "FROM results WHERE selected=1 AND category <> 'Sin clasificar' ORDER BY media_id", null)) {
+            while (c.moveToNext()) out.add(fromCursor(c));
+        }
+        return out;
+    }
+
+    public synchronized void setSelected(long mediaId, boolean selected) {
+        ContentValues v = new ContentValues();
+        v.put("selected", selected ? 1 : 0);
+        getWritableDatabase().update("results", v, "media_id=?", new String[]{Long.toString(mediaId)});
+    }
+
+    public synchronized void setCategory(long mediaId, String category, boolean selected) {
+        ContentValues v = new ContentValues();
+        v.put("category", category);
+        v.put("selected", selected ? 1 : 0);
+        getWritableDatabase().update("results", v, "media_id=?", new String[]{Long.toString(mediaId)});
+    }
+
+    public synchronized void clearAll() {
+        getWritableDatabase().delete("results", null, null);
+    }
+
+    private ResultRow fromCursor(Cursor c) {
+        return new ResultRow(
+                c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4),
+                c.getString(5), c.getFloat(6), c.getInt(7) == 1, c.getString(8)
+        );
+    }
+
+    public static class ResultRow {
+        public final long mediaId;
+        public final String uri;
+        public final String name;
+        public final String path;
+        public final long taken;
+        public final String category;
+        public final float confidence;
+        public final boolean selected;
+        public final String reason;
+
+        public ResultRow(long mediaId, String uri, String name, String path, long taken,
+                         String category, float confidence, boolean selected, String reason) {
+            this.mediaId = mediaId;
+            this.uri = uri;
+            this.name = name == null ? "" : name;
+            this.path = path == null ? "" : path;
+            this.taken = taken;
+            this.category = category == null ? "Sin clasificar" : category;
+            this.confidence = confidence;
+            this.selected = selected;
+            this.reason = reason == null ? "" : reason;
+        }
+    }
+}
