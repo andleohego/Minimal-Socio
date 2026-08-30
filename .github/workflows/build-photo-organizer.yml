@@ -41,13 +41,78 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
           test -s ~/.android/debug.keystore
+      - name: Apply v1.2.2 safe move patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('photo-organizer/app/src/main/java/cl/andres/ordenafotos/MainActivity.java')
+          s = p.read_text(encoding='utf-8')
+
+          def rep(old, new, label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'No encontré bloque para {label}')
+              s = s.replace(old, new, 1)
+
+          rep('import android.content.ContentValues;\n',
+              'import android.content.ContentUris;\nimport android.content.ContentValues;\n',
+              'ContentUris')
+
+          rep('private static final int WRITE_BATCH = 1900;',
+              'private static final int WRITE_BATCH = 500;',
+              'batch 500')
+
+          rep('TextView title = text("OrdenaFotos Socio v1.2.1", 25, 0xFF102027, true);',
+              'TextView title = text("OrdenaFotos Socio v1.2.2", 25, 0xFF102027, true);',
+              'título')
+
+          rep('''    private int physicalOrganized = 0;\n    private boolean organizeByDate = false;''',
+              '''    private int physicalOrganized = 0;\n    private boolean abortMoveSession = false;\n    private String lastMoveError = "";\n    private boolean organizeByDate = false;''',
+              'campos diagnóstico')
+
+          rep('''        moveBatches.clear();\n        for (int i = 0; i < selected.size(); i += WRITE_BATCH) {\n            moveBatches.add(new ArrayList<>(selected.subList(i, Math.min(selected.size(), i + WRITE_BATCH))));\n        }''',
+              '''        moveBatches.clear();\n        int probeIndex = selected.size() - 1;\n        moveBatches.add(new ArrayList<>(selected.subList(probeIndex, probeIndex + 1)));\n        for (int i = 0; i < probeIndex; i += WRITE_BATCH) {\n            moveBatches.add(new ArrayList<>(selected.subList(i, Math.min(probeIndex, i + WRITE_BATCH))));\n        }''',
+              'lotes con prueba inicial')
+
+          rep('''        requestedMoves = selected.size();\n        currentBatch = 0;\n        prefs.edit()''',
+              '''        requestedMoves = selected.size();\n        currentBatch = 0;\n        abortMoveSession = false;\n        lastMoveError = "";\n        prefs.edit()''',
+              'reinicio diagnóstico')
+
+          rep('''        new AlertDialog.Builder(this)\n                .setTitle("Ordenar " + selected.size() + " fotos")\n                .setMessage("Se usarán " + prompts + " lotes como máximo. Android pedirá autorización para cada lote.\\n\\n" +''',
+              '''        new AlertDialog.Builder(this)\n                .setTitle("Ordenar " + selected.size() + " fotos")\n                .setMessage("Primero probaré 1 foto. Si funciona, seguiré con lotes de hasta " + WRITE_BATCH + " fotos (" + prompts + " autorizaciones como máximo).\\n\\n" +''',
+              'mensaje de prueba')
+
+          rep('for (AnalysisDb.ResultRow r : batch) uris.add(Uri.parse(r.uri));',
+              'for (AnalysisDb.ResultRow r : batch) uris.add(currentMediaUri(r));',
+              'URI de permisos')
+
+          old_result = '''        if (requestCode == REQ_WRITE) {\n            if (currentBatch >= 0 && currentBatch < moveBatches.size()) {\n                if (resultCode == RESULT_OK) {\n                    moveCurrentBatch();\n                } else {\n                    denied += moveBatches.get(currentBatch).size();\n                    saveMoveCounters();\n                    Toast.makeText(this, "Lote " + (currentBatch + 1) + " no autorizado; queda pendiente.", Toast.LENGTH_SHORT).show();\n                }\n            }\n            currentBatch++;\n            requestCurrentWriteBatch();\n        }'''
+          new_result = '''        if (requestCode == REQ_WRITE) {\n            if (currentBatch >= 0 && currentBatch < moveBatches.size()) {\n                if (resultCode == RESULT_OK) {\n                    moveCurrentBatch();\n                } else {\n                    denied += moveBatches.get(currentBatch).size();\n                    if (currentBatch == 0) {\n                        abortMoveSession = true;\n                        lastMoveError = "La prueba inicial no fue autorizada.";\n                    }\n                    saveMoveCounters();\n                    Toast.makeText(this, "Lote " + (currentBatch + 1) + " no autorizado; queda pendiente.", Toast.LENGTH_SHORT).show();\n                }\n            }\n            if (abortMoveSession) {\n                finishMoveSession();\n                return;\n            }\n            currentBatch++;\n            requestCurrentWriteBatch();\n        }'''
+          rep(old_result, new_result, 'resultado de permiso')
+
+          old_move = '''    private void moveCurrentBatch() {\n        if (currentBatch < 0 || currentBatch >= moveBatches.size()) return;\n        for (AnalysisDb.ResultRow r : moveBatches.get(currentBatch)) {\n            try {\n                ContentValues v = new ContentValues();\n                v.put(MediaStore.Images.Media.RELATIVE_PATH, destinationFor(r));\n                int n = getContentResolver().update(Uri.parse(r.uri), v, null, null);\n                if (n > 0) {\n                    moved++;\n                    db.setSelected(r.mediaId, false);\n                } else {\n                    failed++;\n                }\n            } catch (Exception e) {\n                failed++;\n            }\n        }\n        saveMoveCounters();\n        refreshPhysicalCountAsync();\n        refreshPreview();\n    }'''
+          new_move = '''    private void moveCurrentBatch() {\n        if (currentBatch < 0 || currentBatch >= moveBatches.size()) return;\n        int batchMoved = 0;\n        int batchFailed = 0;\n        for (AnalysisDb.ResultRow r : moveBatches.get(currentBatch)) {\n            Uri uri = currentMediaUri(r);\n            String destination = destinationFor(r);\n            try {\n                ContentValues v = new ContentValues();\n                v.put(MediaStore.Images.Media.RELATIVE_PATH, destination);\n                int n = getContentResolver().update(uri, v, null, null);\n                if (n > 0) {\n                    moved++;\n                    batchMoved++;\n                    db.setSelected(r.mediaId, false);\n                } else {\n                    failed++;\n                    batchFailed++;\n                    if (lastMoveError.isEmpty()) {\n                        lastMoveError = "MediaStore update devolvió 0 • ID " + r.mediaId + " • " + r.name + " • destino " + destination;\n                    }\n                }\n            } catch (Exception e) {\n                failed++;\n                batchFailed++;\n                if (lastMoveError.isEmpty()) {\n                    String detail = e.getMessage();\n                    lastMoveError = e.getClass().getSimpleName() + (detail == null || detail.isEmpty() ? "" : ": " + detail) +\n                            " • ID " + r.mediaId + " • destino " + destination;\n                }\n            }\n        }\n        if (batchMoved == 0 && batchFailed > 0) {\n            abortMoveSession = true;\n        }\n        saveMoveCounters();\n        refreshPhysicalCountAsync();\n        refreshPreview();\n    }'''
+          rep(old_move, new_move, 'movimiento con diagnóstico')
+
+          old_finish = '''    private void finishMoveSession() {\n        movingOrder = false;\n        saveMoveCounters();\n        refreshPhysicalCountAsync();\n        int pending = db.countSelected();\n        refreshPreview();\n        refreshState();\n\n        new AlertDialog.Builder(this)\n                .setTitle("Ordenado finalizado")\n                .setMessage("Movidas: " + moved + " de " + requestedMoves +\n                        "\\nFallidas: " + failed +\n                        "\\nNo autorizadas: " + denied +\n                        "\\nPendientes para reintentar: " + pending +\n                        "\\n\\nCarpeta: Almacenamiento interno/Pictures/OrdenaFotos")\n                .setNegativeButton("Cerrar", null)\n                .setPositiveButton("Abrir carpeta", (d, w) -> openOrderFolder())\n                .show();\n    }'''
+          new_finish = '''    private void finishMoveSession() {\n        movingOrder = false;\n        saveMoveCounters();\n        refreshPhysicalCountAsync();\n        int pending = db.countSelected();\n        refreshPreview();\n        refreshState();\n\n        String diagnostic = lastMoveError.isEmpty() ? "" : "\\n\\nDiagnóstico: " + lastMoveError;\n        new AlertDialog.Builder(this)\n                .setTitle(abortMoveSession ? "Ordenado detenido por error" : "Ordenado finalizado")\n                .setMessage("Movidas: " + moved + " de " + requestedMoves +\n                        "\\nFallidas: " + failed +\n                        "\\nNo autorizadas: " + denied +\n                        "\\nPendientes para reintentar: " + pending +\n                        diagnostic +\n                        "\\n\\nCarpeta: Almacenamiento interno/Pictures/OrdenaFotos")\n                .setNegativeButton("Cerrar", null)\n                .setPositiveButton("Abrir carpeta", (d, w) -> openOrderFolder())\n                .show();\n    }'''
+          rep(old_finish, new_finish, 'diálogo diagnóstico')
+
+          rep('''    private String destinationFor(AnalysisDb.ResultRow r) {''',
+              '''    private Uri currentMediaUri(AnalysisDb.ResultRow r) {\n        Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);\n        return ContentUris.withAppendedId(collection, r.mediaId);\n    }\n\n    private String destinationFor(AnalysisDb.ResultRow r) {''',
+              'URI actual por ID')
+
+          p.write_text(s, encoding='utf-8')
+          print('v1.2.2 safe move patch aplicado')
+          PY
       - name: Build APK
         working-directory: photo-organizer
         run: gradle --no-daemon assembleDebug
       - name: Rename APK
-        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2.1-estable.apk
+        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2.2-segura.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: OrdenaFotos-Socio-v1.2.1-estable
-          path: OrdenaFotos-Socio-v1.2.1-estable.apk
+          name: OrdenaFotos-Socio-v1.2.2-segura
+          path: OrdenaFotos-Socio-v1.2.2-segura.apk
           if-no-files-found: error
