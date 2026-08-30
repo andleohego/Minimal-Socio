@@ -25,6 +25,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".CleanupActivity"
+            android:exported="true"
+            android:label="Limpieza OrdenaFotos"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".AnalysisService"
             android:exported="false"
@@ -33,6 +44,16 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Long-running, user-initiated, on-device classification of a large local photo library; progress must continue while the screen is locked." />
+        </service>
+
+        <service
+            android:name=".CleanupService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Long-running, user-initiated, local SHA-256 duplicate verification before deleting media originals; progress must continue while the screen is locked." />
         </service>
     </application>
 </manifest>
