@@ -122,6 +122,33 @@ public class AnalysisDb extends SQLiteOpenHelper {
         getWritableDatabase().update("results", v, "media_id=?", new String[]{Long.toString(mediaId)});
     }
 
+    /**
+     * Reconciles rows with MediaStore after an older version already moved photos.
+     * Returns how many rows were actually removed from the pending queue.
+     */
+    public synchronized int markOrganizedIds(List<Long> mediaIds) {
+        if (mediaIds == null || mediaIds.isEmpty()) return 0;
+        SQLiteDatabase database = getWritableDatabase();
+        ContentValues v = new ContentValues();
+        v.put("selected", 0);
+        int changed = 0;
+        database.beginTransaction();
+        try {
+            for (Long id : mediaIds) {
+                if (id == null) continue;
+                changed += database.update(
+                        "results", v,
+                        "media_id=? AND selected=1",
+                        new String[]{Long.toString(id)}
+                );
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+        return changed;
+    }
+
     public synchronized void clearAll() {
         getWritableDatabase().delete("results", null, null);
     }
