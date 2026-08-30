@@ -45,9 +45,9 @@ jobs:
         working-directory: photo-organizer
         run: gradle --no-daemon assembleDebug
       - name: Rename APK
-        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2-estable.apk
+        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2.1-estable.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: OrdenaFotos-Socio-v1.2-estable
-          path: OrdenaFotos-Socio-v1.2-estable.apk
+          name: OrdenaFotos-Socio-v1.2.1-estable
+          path: OrdenaFotos-Socio-v1.2.1-estable.apk
           if-no-files-found: error
