@@ -49,6 +49,9 @@ public class MainActivity extends Activity {
     private static final String K_MOVE_FAILED = "move_failed";
     private static final String K_MOVE_DENIED = "move_denied";
     private static final String K_BY_DATE = "by_date";
+    private static final String K_SYNC_DONE = "sync_v121_done";
+    private static final String K_SYNC_PHYSICAL = "sync_v121_physical";
+    private static final String K_SYNC_REMOVED = "sync_v121_removed";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<AnalysisDb.ResultRow> previewRows = new ArrayList<>();
@@ -61,11 +64,13 @@ public class MainActivity extends Activity {
     private TextView status;
     private TextView summary;
     private TextView moveStatus;
+    private TextView syncStatus;
     private Button startButton;
     private Button pauseButton;
     private Button stopButton;
     private Button resetButton;
     private Button applyButton;
+    private Button syncButton;
     private Button openFolderButton;
     private CheckBox byDate;
     private PreviewAdapter adapter;
@@ -78,6 +83,7 @@ public class MainActivity extends Activity {
     private int physicalOrganized = 0;
     private boolean organizeByDate = false;
     private boolean movingOrder = false;
+    private boolean syncBusy = false;
     private volatile boolean physicalCountBusy = false;
     private long lastPhysicalRefresh = 0L;
 
@@ -96,6 +102,7 @@ public class MainActivity extends Activity {
         buildUi();
         refreshPhysicalCountAsync();
         refreshState();
+        maybeAutoSync();
     }
 
     @Override
@@ -104,6 +111,7 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(refreshRunnable);
         handler.post(refreshRunnable);
         refreshPhysicalCountAsync();
+        maybeAutoSync();
     }
 
     @Override
@@ -126,9 +134,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(14), dp(12), dp(14), dp(10));
         root.setBackgroundColor(0xFFF5F7F8);
 
-        TextView title = text("OrdenaFotos Socio v1.2", 25, 0xFF102027, true);
+        TextView title = text("OrdenaFotos Socio v1.2.1", 25, 0xFF102027, true);
         root.addView(title);
-        TextView subtitle = text("Análisis persistente • ordenado controlado • diagnóstico de carpeta", 14, 0xFF455A64, false);
+        TextView subtitle = text("Análisis persistente • sincronización segura • ordenado controlado", 14, 0xFF455A64, false);
         subtitle.setPadding(0, dp(3), 0, dp(9));
         root.addView(subtitle);
 
@@ -143,6 +151,10 @@ public class MainActivity extends Activity {
         summary = text("", 13, 0xFF00695C, false);
         summary.setPadding(0, 0, 0, dp(6));
         root.addView(summary);
+
+        syncStatus = text("", 13, 0xFF37474F, true);
+        syncStatus.setPadding(0, dp(2), 0, dp(5));
+        root.addView(syncStatus);
 
         moveStatus = text("", 13, 0xFF37474F, true);
         moveStatus.setPadding(0, dp(2), 0, dp(7));
@@ -174,6 +186,9 @@ public class MainActivity extends Activity {
                 prefs.edit().putBoolean(K_BY_DATE, isChecked).apply());
         root.addView(byDate);
 
+        syncButton = button("Sincronizar fotos ya ordenadas", v -> syncOrganizedAsync(true));
+        root.addView(syncButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         applyButton = button("Aplicar orden a las fotos seguras", v -> prepareMove());
         root.addView(applyButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -193,8 +208,8 @@ public class MainActivity extends Activity {
     }
 
     private void requestAndStart(boolean clear) {
-        if (movingOrder) {
-            Toast.makeText(this, "Termina primero el ordenado en curso.", Toast.LENGTH_SHORT).show();
+        if (movingOrder || syncBusy) {
+            Toast.makeText(this, "Termina primero el proceso en curso.", Toast.LENGTH_SHORT).show();
             return;
         }
         if (hasFullReadPermission()) {
@@ -262,7 +277,7 @@ public class MainActivity extends Activity {
     }
 
     private void confirmReset() {
-        if (prefs.getBoolean("running", false) || movingOrder) {
+        if (prefs.getBoolean("running", false) || movingOrder || syncBusy) {
             Toast.makeText(this, "Detén el proceso antes de reiniciarlo desde cero.", Toast.LENGTH_LONG).show();
             return;
         }
@@ -297,6 +312,16 @@ public class MainActivity extends Activity {
         }
         summary.setText(sb.toString());
 
+        if (syncBusy) {
+            syncStatus.setText("Sincronizando con las fotos que ya están físicamente ordenadas…");
+        } else if (prefs.getBoolean(K_SYNC_DONE, false)) {
+            syncStatus.setText("Sincronización OK: detectadas " + prefs.getInt(K_SYNC_PHYSICAL, 0) +
+                    " • quitadas de pendientes " + prefs.getInt(K_SYNC_REMOVED, 0) +
+                    " • pendientes ahora " + selected);
+        } else {
+            syncStatus.setText("Sincronización pendiente: todavía no aplicar el orden.");
+        }
+
         if (!movingOrder) {
             int lr = prefs.getInt(K_MOVE_REQUESTED, 0);
             int lm = prefs.getInt(K_MOVE_MOVED, 0);
@@ -310,18 +335,19 @@ public class MainActivity extends Activity {
             }
         }
 
-        startButton.setEnabled((!running || paused) && !movingOrder);
-        pauseButton.setEnabled(running && !movingOrder);
+        startButton.setEnabled((!running || paused) && !movingOrder && !syncBusy);
+        pauseButton.setEnabled(running && !movingOrder && !syncBusy);
         pauseButton.setText(paused ? "Continuar" : "Pausar");
-        stopButton.setEnabled(running && !movingOrder);
-        resetButton.setEnabled(!running && !movingOrder);
-        applyButton.setEnabled(!running && selected > 0 && !movingOrder);
-        byDate.setEnabled(!movingOrder);
+        stopButton.setEnabled(running && !movingOrder && !syncBusy);
+        resetButton.setEnabled(!running && !movingOrder && !syncBusy);
+        syncButton.setEnabled(!running && !movingOrder && !syncBusy && hasFullReadPermission());
+        applyButton.setEnabled(!running && selected > 0 && !movingOrder && !syncBusy && prefs.getBoolean(K_SYNC_DONE, false));
+        byDate.setEnabled(!movingOrder && !syncBusy);
 
         if (!running || previewRows.isEmpty() || done % 25 == 0) refreshPreview();
 
         long now = System.currentTimeMillis();
-        if (!running && now - lastPhysicalRefresh > 5000L) refreshPhysicalCountAsync();
+        if (!running && !syncBusy && now - lastPhysicalRefresh > 5000L) refreshPhysicalCountAsync();
     }
 
     private void refreshPreview() {
@@ -330,12 +356,93 @@ public class MainActivity extends Activity {
         adapter.notifyDataSetChanged();
     }
 
+    private void maybeAutoSync() {
+        if (!prefs.getBoolean(K_SYNC_DONE, false)
+                && hasFullReadPermission()
+                && !prefs.getBoolean("running", false)
+                && !movingOrder
+                && !syncBusy) {
+            syncOrganizedAsync(true);
+        }
+    }
+
+    private void syncOrganizedAsync(boolean showDialog) {
+        if (syncBusy || movingOrder || prefs.getBoolean("running", false)) return;
+        if (!hasFullReadPermission()) {
+            Toast.makeText(this, "Concede permiso a todas las fotos antes de sincronizar.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (statsExecutor.isShutdown()) return;
+
+        syncBusy = true;
+        refreshState();
+        statsExecutor.execute(() -> {
+            ArrayList<Long> ids = new ArrayList<>();
+            boolean queryOk = false;
+            try {
+                Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);
+                String selection = MediaStore.Images.Media.RELATIVE_PATH + " LIKE ?";
+                String[] args = {Environment.DIRECTORY_PICTURES + "/" + ROOT_FOLDER + "/%"};
+                try (Cursor c = getContentResolver().query(collection,
+                        new String[]{MediaStore.Images.Media._ID}, selection, args, null)) {
+                    if (c != null) {
+                        int idIx = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+                        while (c.moveToNext()) ids.add(c.getLong(idIx));
+                        queryOk = true;
+                    }
+                }
+            } catch (Exception ignored) { }
+
+            final boolean ok = queryOk;
+            final int physical = ids.size();
+            final int removed = ok ? db.markOrganizedIds(ids) : 0;
+            final int pending = db.countSelected();
+
+            if (ok) {
+                physicalOrganized = physical;
+                prefs.edit()
+                        .putBoolean(K_SYNC_DONE, true)
+                        .putInt(K_SYNC_PHYSICAL, physical)
+                        .putInt(K_SYNC_REMOVED, removed)
+                        .apply();
+            }
+            syncBusy = false;
+
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                refreshPreview();
+                refreshState();
+                if (!ok) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("No pude sincronizar")
+                            .setMessage("No fue posible leer las fotos dentro de Pictures/OrdenaFotos. Revisa el permiso de Fotos y videos.")
+                            .setPositiveButton("Entendido", null)
+                            .show();
+                } else if (showDialog) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("Sincronización terminada")
+                            .setMessage("Fotos detectadas en OrdenaFotos: " + physical +
+                                    "\nQuitadas de la cola pendiente: " + removed +
+                                    "\nPendientes seguras ahora: " + pending +
+                                    "\n\nNo se movió ni borró ninguna foto durante esta sincronización.")
+                            .setPositiveButton("Perfecto", null)
+                            .show();
+                }
+            });
+        });
+    }
+
     private void prepareMove() {
         if (prefs.getBoolean("running", false)) {
             Toast.makeText(this, "Espera a que termine el análisis antes de mover fotos.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (movingOrder) return;
+        if (movingOrder || syncBusy) return;
+        if (!prefs.getBoolean(K_SYNC_DONE, false)) {
+            Toast.makeText(this, "Primero debo sincronizar las fotos que ya fueron ordenadas.", Toast.LENGTH_LONG).show();
+            syncOrganizedAsync(true);
+            return;
+        }
 
         List<AnalysisDb.ResultRow> selected = db.selectedRows();
         if (selected.isEmpty()) {
@@ -368,7 +475,7 @@ public class MainActivity extends Activity {
                 .setMessage("Se usarán " + prompts + " lotes como máximo. Android pedirá autorización para cada lote.\n\n" +
                         "Destino: Pictures/OrdenaFotos/\n" +
                         (organizeByDate ? "Con subcarpetas por año/mes.\n\n" : "Sin separar por fecha.\n\n") +
-                        "No se borrará ninguna foto. Si un lote falla o se cancela, queda pendiente para reintentar.")
+                        "Las ya sincronizadas no se incluyen. No se borrará ninguna foto. Si un lote falla o se cancela, queda pendiente para reintentar.")
                 .setNegativeButton("Cancelar", null)
                 .setPositiveButton("Comenzar orden", (d, w) -> {
                     movingOrder = true;
@@ -574,7 +681,7 @@ public class MainActivity extends Activity {
 
             CheckBox check = new CheckBox(MainActivity.this);
             check.setChecked(r.selected);
-            check.setEnabled(!movingOrder);
+            check.setEnabled(!movingOrder && !syncBusy);
             check.setOnCheckedChangeListener((buttonView, isChecked) -> db.setSelected(r.mediaId, isChecked));
             row.addView(check);
 
