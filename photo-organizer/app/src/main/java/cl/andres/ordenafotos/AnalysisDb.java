@@ -15,7 +15,7 @@ import java.util.Set;
 
 public class AnalysisDb extends SQLiteOpenHelper {
     private static final String DB_NAME = "ordenafotos.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
 
     public AnalysisDb(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -37,12 +37,20 @@ public class AnalysisDb extends SQLiteOpenHelper {
                 ")");
         db.execSQL("CREATE INDEX idx_results_category ON results(category)");
         db.execSQL("CREATE INDEX idx_results_selected ON results(selected)");
+        createCleanupTable(db);
+    }
+
+    private void createCleanupTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS cleanup_verified (" +
+                "media_id INTEGER PRIMARY KEY," +
+                "bytes INTEGER NOT NULL," +
+                "verified_at INTEGER NOT NULL" +
+                ")");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS results");
-        onCreate(db);
+        if (oldVersion < 2) createCleanupTable(db);
     }
 
     public synchronized void save(ResultRow row) {
@@ -99,6 +107,16 @@ public class AnalysisDb extends SQLiteOpenHelper {
         return out;
     }
 
+    public synchronized List<ResultRow> allRows() {
+        ArrayList<ResultRow> out = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT media_id,uri,display_name,relative_path,date_taken,category,confidence,selected,reason " +
+                        "FROM results ORDER BY media_id", null)) {
+            while (c.moveToNext()) out.add(fromCursor(c));
+        }
+        return out;
+    }
+
     public synchronized List<ResultRow> selectedRows() {
         ArrayList<ResultRow> out = new ArrayList<>();
         try (Cursor c = getReadableDatabase().rawQuery(
@@ -149,8 +167,58 @@ public class AnalysisDb extends SQLiteOpenHelper {
         return changed;
     }
 
+    public synchronized void clearCleanupVerified() {
+        getWritableDatabase().delete("cleanup_verified", null, null);
+    }
+
+    public synchronized void addCleanupVerified(long mediaId, long bytes) {
+        ContentValues v = new ContentValues();
+        v.put("media_id", mediaId);
+        v.put("bytes", Math.max(0L, bytes));
+        v.put("verified_at", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict("cleanup_verified", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public synchronized int countCleanupVerified() {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM cleanup_verified", null)) {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        }
+    }
+
+    public synchronized long sumCleanupVerifiedBytes() {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT COALESCE(SUM(bytes),0) FROM cleanup_verified", null)) {
+            return c.moveToFirst() ? c.getLong(0) : 0L;
+        }
+    }
+
+    public synchronized List<CleanupVerified> cleanupVerifiedRows() {
+        ArrayList<CleanupVerified> out = new ArrayList<>();
+        try (Cursor c = getReadableDatabase().rawQuery(
+                "SELECT media_id,bytes FROM cleanup_verified ORDER BY media_id", null)) {
+            while (c.moveToNext()) out.add(new CleanupVerified(c.getLong(0), c.getLong(1)));
+        }
+        return out;
+    }
+
+    public synchronized void removeCleanupVerified(List<Long> mediaIds) {
+        if (mediaIds == null || mediaIds.isEmpty()) return;
+        SQLiteDatabase database = getWritableDatabase();
+        database.beginTransaction();
+        try {
+            for (Long id : mediaIds) {
+                if (id == null) continue;
+                database.delete("cleanup_verified", "media_id=?", new String[]{Long.toString(id)});
+            }
+            database.setTransactionSuccessful();
+        } finally {
+            database.endTransaction();
+        }
+    }
+
     public synchronized void clearAll() {
-        getWritableDatabase().delete("results", null, null);
+        SQLiteDatabase database = getWritableDatabase();
+        database.delete("cleanup_verified", null, null);
+        database.delete("results", null, null);
     }
 
     private ResultRow fromCursor(Cursor c) {
@@ -158,6 +226,15 @@ public class AnalysisDb extends SQLiteOpenHelper {
                 c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4),
                 c.getString(5), c.getFloat(6), c.getInt(7) == 1, c.getString(8)
         );
+    }
+
+    public static class CleanupVerified {
+        public final long mediaId;
+        public final long bytes;
+        public CleanupVerified(long mediaId, long bytes) {
+            this.mediaId = mediaId;
+            this.bytes = bytes;
+        }
     }
 
     public static class ResultRow {
