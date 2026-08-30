@@ -23,13 +23,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ordenafotos-signing-key-v1
       - name: Build APK
         working-directory: photo-organizer
         run: gradle --no-daemon assembleDebug
+      - name: Verify signing key exists
+        run: test -s ~/.android/debug.keystore
       - name: Rename APK
-        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2.apk
+        run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2-estable.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: OrdenaFotos-Socio-v1.2
-          path: OrdenaFotos-Socio-v1.2.apk
+          name: OrdenaFotos-Socio-v1.2-estable
+          path: OrdenaFotos-Socio-v1.2-estable.apk
           if-no-files-found: error
