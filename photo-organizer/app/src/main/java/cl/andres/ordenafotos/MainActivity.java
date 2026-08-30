@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -29,6 +30,9 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -41,8 +45,11 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private static final int REQ_READ = 1001;
     private static final int REQ_WRITE = 1002;
+    private static final int REQ_IMPORT_DB = 1004;
+    private static final int REQ_SYNC_READ = 1005;
     private static final int WRITE_BATCH = 1900;
     private static final String ROOT_FOLDER = "OrdenaFotos";
+    private static final String DB_FILE = "ordenafotos.db";
 
     private static final String K_MOVE_REQUESTED = "move_requested";
     private static final String K_MOVE_MOVED = "move_moved";
@@ -69,6 +76,7 @@ public class MainActivity extends Activity {
     private Button pauseButton;
     private Button stopButton;
     private Button resetButton;
+    private Button restoreButton;
     private Button applyButton;
     private Button syncButton;
     private Button openFolderButton;
@@ -84,6 +92,7 @@ public class MainActivity extends Activity {
     private boolean organizeByDate = false;
     private boolean movingOrder = false;
     private boolean syncBusy = false;
+    private boolean restoringBackup = false;
     private volatile boolean physicalCountBusy = false;
     private long lastPhysicalRefresh = 0L;
 
@@ -124,7 +133,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(refreshRunnable);
         statsExecutor.shutdownNow();
-        db.close();
+        if (db != null) db.close();
         super.onDestroy();
     }
 
@@ -136,7 +145,7 @@ public class MainActivity extends Activity {
 
         TextView title = text("OrdenaFotos Socio v1.2.1", 25, 0xFF102027, true);
         root.addView(title);
-        TextView subtitle = text("Análisis persistente • sincronización segura • ordenado controlado", 14, 0xFF455A64, false);
+        TextView subtitle = text("Análisis persistente • restauración segura • sincronización automática", 14, 0xFF455A64, false);
         subtitle.setPadding(0, dp(3), 0, dp(9));
         root.addView(subtitle);
 
@@ -186,6 +195,9 @@ public class MainActivity extends Activity {
                 prefs.edit().putBoolean(K_BY_DATE, isChecked).apply());
         root.addView(byDate);
 
+        restoreButton = button("Restaurar respaldo de análisis", v -> chooseBackupDb());
+        root.addView(restoreButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         syncButton = button("Sincronizar fotos ya ordenadas", v -> syncOrganizedAsync(true));
         root.addView(syncButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -208,7 +220,7 @@ public class MainActivity extends Activity {
     }
 
     private void requestAndStart(boolean clear) {
-        if (movingOrder || syncBusy) {
+        if (movingOrder || syncBusy || restoringBackup) {
             Toast.makeText(this, "Termina primero el proceso en curso.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -245,12 +257,34 @@ public class MainActivity extends Activity {
                         .setMessage("Para analizar toda la galería debes elegir “Permitir todas las fotos”. Con acceso limitado Android solo entrega las fotos seleccionadas.")
                         .setPositiveButton("Entendido", null).show();
             }
+        } else if (requestCode == REQ_SYNC_READ) {
+            if (hasFullReadPermission()) {
+                refreshPhysicalCountAsync();
+                syncOrganizedAsync(true);
+            } else {
+                new AlertDialog.Builder(this)
+                        .setTitle("Falta permiso de fotos")
+                        .setMessage("El respaldo quedó restaurado, pero necesito “Permitir todas las fotos” para reconocer cuáles ya están dentro de OrdenaFotos.")
+                        .setPositiveButton("Entendido", null).show();
+            }
         }
     }
 
     private void requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1003);
+        }
+    }
+
+    private void requestSyncPhotoPermission() {
+        if (hasFullReadPermission()) {
+            syncOrganizedAsync(true);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(new String[]{Manifest.permission.READ_MEDIA_IMAGES}, REQ_SYNC_READ);
+        } else {
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_SYNC_READ);
         }
     }
 
@@ -277,7 +311,7 @@ public class MainActivity extends Activity {
     }
 
     private void confirmReset() {
-        if (prefs.getBoolean("running", false) || movingOrder || syncBusy) {
+        if (prefs.getBoolean("running", false) || movingOrder || syncBusy || restoringBackup) {
             Toast.makeText(this, "Detén el proceso antes de reiniciarlo desde cero.", Toast.LENGTH_LONG).show();
             return;
         }
@@ -290,6 +324,13 @@ public class MainActivity extends Activity {
     }
 
     private void refreshState() {
+        if (restoringBackup || db == null) {
+            status.setText("Restaurando respaldo de análisis…");
+            syncStatus.setText("Validando y copiando la base guardada.");
+            setProcessButtons(false);
+            return;
+        }
+
         boolean running = prefs.getBoolean("running", false);
         boolean paused = prefs.getBoolean("paused", false);
         int total = prefs.getInt("total", 0);
@@ -300,10 +341,11 @@ public class MainActivity extends Activity {
         else progress.setProgress(0);
         status.setText(s);
 
+        int dbCount = db.count();
         int selected = db.countSelected();
         Map<String, Integer> counts = db.categoryCounts();
         StringBuilder sb = new StringBuilder();
-        sb.append("Guardadas: ").append(db.count()).append("  •  Pendientes seguras: ").append(selected);
+        sb.append("Guardadas: ").append(dbCount).append("  •  Pendientes seguras: ").append(selected);
         sb.append("\nEn Pictures/OrdenaFotos: ").append(physicalOrganized);
         int shown = 0;
         for (Map.Entry<String, Integer> e : counts.entrySet()) {
@@ -312,7 +354,9 @@ public class MainActivity extends Activity {
         }
         summary.setText(sb.toString());
 
-        if (syncBusy) {
+        if (dbCount == 0) {
+            syncStatus.setText("Si vienes de v1.2, pulsa “Restaurar respaldo de análisis” y elige ordenafotos.db.");
+        } else if (syncBusy) {
             syncStatus.setText("Sincronizando con las fotos que ya están físicamente ordenadas…");
         } else if (prefs.getBoolean(K_SYNC_DONE, false)) {
             syncStatus.setText("Sincronización OK: detectadas " + prefs.getInt(K_SYNC_PHYSICAL, 0) +
@@ -340,8 +384,9 @@ public class MainActivity extends Activity {
         pauseButton.setText(paused ? "Continuar" : "Pausar");
         stopButton.setEnabled(running && !movingOrder && !syncBusy);
         resetButton.setEnabled(!running && !movingOrder && !syncBusy);
-        syncButton.setEnabled(!running && !movingOrder && !syncBusy && hasFullReadPermission());
-        applyButton.setEnabled(!running && selected > 0 && !movingOrder && !syncBusy && prefs.getBoolean(K_SYNC_DONE, false));
+        restoreButton.setEnabled(!running && !movingOrder && !syncBusy);
+        syncButton.setEnabled(dbCount > 0 && !running && !movingOrder && !syncBusy && hasFullReadPermission());
+        applyButton.setEnabled(dbCount > 0 && !running && selected > 0 && !movingOrder && !syncBusy && prefs.getBoolean(K_SYNC_DONE, false));
         byDate.setEnabled(!movingOrder && !syncBusy);
 
         if (!running || previewRows.isEmpty() || done % 25 == 0) refreshPreview();
@@ -350,13 +395,187 @@ public class MainActivity extends Activity {
         if (!running && !syncBusy && now - lastPhysicalRefresh > 5000L) refreshPhysicalCountAsync();
     }
 
+    private void setProcessButtons(boolean enabled) {
+        startButton.setEnabled(enabled);
+        pauseButton.setEnabled(enabled);
+        stopButton.setEnabled(enabled);
+        resetButton.setEnabled(enabled);
+        restoreButton.setEnabled(enabled);
+        syncButton.setEnabled(enabled);
+        applyButton.setEnabled(enabled);
+        byDate.setEnabled(enabled);
+    }
+
     private void refreshPreview() {
+        if (db == null || restoringBackup) return;
         previewRows.clear();
         previewRows.addAll(db.latest(150));
         adapter.notifyDataSetChanged();
     }
 
+    private void chooseBackupDb() {
+        if (movingOrder || syncBusy || restoringBackup || prefs.getBoolean("running", false)) return;
+        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("*/*");
+        if (Build.VERSION.SDK_INT >= 26) {
+            Uri initial = DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents",
+                    "primary:Download/OrdenaFotosRescate");
+            picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
+        }
+        try {
+            startActivityForResult(picker, REQ_IMPORT_DB);
+        } catch (Exception e) {
+            Toast.makeText(this, "Abre Download/OrdenaFotosRescate y selecciona ordenafotos.db.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void importBackupAsync(Uri uri) {
+        if (uri == null || restoringBackup || movingOrder || syncBusy) return;
+        restoringBackup = true;
+        refreshState();
+        handler.removeCallbacks(refreshRunnable);
+
+        statsExecutor.execute(() -> {
+            File temp = new File(getCacheDir(), "ordenafotos_import.db");
+            int validatedCount = -1;
+            String error = null;
+            try {
+                if (temp.exists()) temp.delete();
+                try (InputStream in = getContentResolver().openInputStream(uri);
+                     FileOutputStream out = new FileOutputStream(temp)) {
+                    if (in == null) throw new IllegalStateException("No se pudo abrir el archivo");
+                    byte[] buffer = new byte[1024 * 256];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                    out.getFD().sync();
+                }
+
+                if (temp.length() < 4096) throw new IllegalStateException("El archivo es demasiado pequeño");
+
+                SQLiteDatabase check = SQLiteDatabase.openDatabase(temp.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+                try {
+                    try (Cursor quick = check.rawQuery("PRAGMA quick_check", null)) {
+                        if (!quick.moveToFirst() || !"ok".equalsIgnoreCase(quick.getString(0))) {
+                            throw new IllegalStateException("La base no supera la verificación SQLite");
+                        }
+                    }
+                    try (Cursor c = check.rawQuery("SELECT COUNT(*) FROM results", null)) {
+                        if (!c.moveToFirst()) throw new IllegalStateException("No existe la tabla de resultados");
+                        validatedCount = c.getInt(0);
+                    }
+                    check.rawQuery("SELECT media_id,category,selected FROM results LIMIT 1", null).close();
+                } finally {
+                    check.close();
+                }
+                if (validatedCount <= 0) throw new IllegalStateException("El respaldo no contiene análisis");
+            } catch (Exception e) {
+                error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            }
+
+            final int count = validatedCount;
+            final String validationError = error;
+            runOnUiThread(() -> finishBackupImport(temp, count, validationError));
+        });
+    }
+
+    private void finishBackupImport(File temp, int validatedCount, String validationError) {
+        if (validationError != null) {
+            restoringBackup = false;
+            handler.post(refreshRunnable);
+            refreshState();
+            new AlertDialog.Builder(this)
+                    .setTitle("Respaldo no válido")
+                    .setMessage("No pude restaurar ese archivo: " + validationError + "\n\nSelecciona el ordenafotos.db de Download/OrdenaFotosRescate.")
+                    .setPositiveButton("Entendido", null)
+                    .show();
+            return;
+        }
+
+        File dbFile = getDatabasePath(DB_FILE);
+        File oldFile = new File(dbFile.getParentFile(), DB_FILE + ".before_import");
+        try {
+            if (db != null) {
+                db.close();
+                db = null;
+            }
+            if (dbFile.getParentFile() != null) dbFile.getParentFile().mkdirs();
+            deleteIfExists(new File(dbFile.getAbsolutePath() + "-wal"));
+            deleteIfExists(new File(dbFile.getAbsolutePath() + "-shm"));
+            deleteIfExists(new File(dbFile.getAbsolutePath() + "-journal"));
+            deleteIfExists(oldFile);
+
+            if (dbFile.exists() && !dbFile.renameTo(oldFile)) {
+                throw new IllegalStateException("No pude preparar la base anterior");
+            }
+            if (!temp.renameTo(dbFile)) {
+                copyFile(temp, dbFile);
+                temp.delete();
+            }
+
+            db = new AnalysisDb(this);
+            int imported = db.count();
+            if (imported != validatedCount) throw new IllegalStateException("La copia quedó incompleta");
+            deleteIfExists(oldFile);
+
+            prefs.edit().clear()
+                    .putBoolean("running", false)
+                    .putBoolean("paused", false)
+                    .putInt("done", imported)
+                    .putInt("total", imported)
+                    .putString("status", "Análisis restaurado: " + imported + " resultados. Sincroniza las fotos ya ordenadas.")
+                    .apply();
+
+            previewRows.clear();
+            physicalOrganized = 0;
+            restoringBackup = false;
+            handler.post(refreshRunnable);
+            refreshPreview();
+            refreshState();
+
+            new AlertDialog.Builder(this)
+                    .setTitle("Respaldo restaurado")
+                    .setMessage("Se recuperaron " + imported + " análisis correctamente.\n\nAhora compararé la base con Pictures/OrdenaFotos para quitar de pendientes las fotos que ya fueron movidas.")
+                    .setPositiveButton("Continuar", (d, w) -> requestSyncPhotoPermission())
+                    .show();
+        } catch (Exception e) {
+            try {
+                if (db != null) db.close();
+                db = null;
+                if (oldFile.exists()) {
+                    deleteIfExists(dbFile);
+                    oldFile.renameTo(dbFile);
+                }
+                db = new AnalysisDb(this);
+            } catch (Exception ignored) { }
+            restoringBackup = false;
+            handler.post(refreshRunnable);
+            refreshState();
+            new AlertDialog.Builder(this)
+                    .setTitle("No pude completar la restauración")
+                    .setMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())
+                    .setPositiveButton("Entendido", null)
+                    .show();
+        }
+    }
+
+    private void copyFile(File from, File to) throws Exception {
+        try (InputStream in = new java.io.FileInputStream(from);
+             FileOutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[1024 * 256];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            out.getFD().sync();
+        }
+    }
+
+    private void deleteIfExists(File f) {
+        if (f != null && f.exists()) f.delete();
+    }
+
     private void maybeAutoSync() {
+        if (db == null || restoringBackup || db.count() == 0) return;
         if (!prefs.getBoolean(K_SYNC_DONE, false)
                 && hasFullReadPermission()
                 && !prefs.getBoolean("running", false)
@@ -367,7 +586,7 @@ public class MainActivity extends Activity {
     }
 
     private void syncOrganizedAsync(boolean showDialog) {
-        if (syncBusy || movingOrder || prefs.getBoolean("running", false)) return;
+        if (db == null || db.count() == 0 || syncBusy || restoringBackup || movingOrder || prefs.getBoolean("running", false)) return;
         if (!hasFullReadPermission()) {
             Toast.makeText(this, "Concede permiso a todas las fotos antes de sincronizar.", Toast.LENGTH_LONG).show();
             return;
@@ -437,7 +656,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Espera a que termine el análisis antes de mover fotos.", Toast.LENGTH_LONG).show();
             return;
         }
-        if (movingOrder || syncBusy) return;
+        if (movingOrder || syncBusy || restoringBackup) return;
         if (!prefs.getBoolean(K_SYNC_DONE, false)) {
             Toast.makeText(this, "Primero debo sincronizar las fotos que ya fueron ordenadas.", Toast.LENGTH_LONG).show();
             syncOrganizedAsync(true);
@@ -518,6 +737,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMPORT_DB) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importBackupAsync(data.getData());
+            }
+            return;
+        }
         if (requestCode == REQ_WRITE) {
             if (currentBatch >= 0 && currentBatch < moveBatches.size()) {
                 if (resultCode == RESULT_OK) {
@@ -595,7 +820,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshPhysicalCountAsync() {
-        if (physicalCountBusy || statsExecutor.isShutdown()) return;
+        if (restoringBackup || physicalCountBusy || statsExecutor.isShutdown()) return;
         physicalCountBusy = true;
         lastPhysicalRefresh = System.currentTimeMillis();
         statsExecutor.execute(() -> {
@@ -613,7 +838,7 @@ public class MainActivity extends Activity {
             physicalOrganized = finalCount;
             physicalCountBusy = false;
             runOnUiThread(() -> {
-                if (!isFinishing()) refreshState();
+                if (!isFinishing() && !restoringBackup) refreshState();
             });
         });
     }
@@ -681,7 +906,7 @@ public class MainActivity extends Activity {
 
             CheckBox check = new CheckBox(MainActivity.this);
             check.setChecked(r.selected);
-            check.setEnabled(!movingOrder && !syncBusy);
+            check.setEnabled(!movingOrder && !syncBusy && !restoringBackup);
             check.setOnCheckedChangeListener((buttonView, isChecked) -> db.setSelected(r.mediaId, isChecked));
             row.addView(check);
 
