@@ -19,8 +19,8 @@ android {
         applicationId 'cl.andres.ordenafotos'
         minSdk 29
         targetSdk 35
-        versionCode 6
-        versionName '1.2.3'
+        versionCode 7
+        versionName '1.2.4'
     }
 
     buildTypes {
@@ -32,31 +32,6 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
-    }
-}
-
-def patchPrimaryVolume = tasks.register('patchOrdenaFotosPrimaryVolume') {
-    doLast {
-        def src = file('src/main/java/cl/andres/ordenafotos/MainActivity.java')
-        def text = src.getText('UTF-8')
-        def oldBlock = '''    private Uri currentMediaUri(AnalysisDb.ResultRow r) {
-        Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);
-        return ContentUris.withAppendedId(collection, r.mediaId);
-    }'''
-        def newBlock = '''    private Uri currentMediaUri(AnalysisDb.ResultRow r) {
-        Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        return ContentUris.withAppendedId(collection, r.mediaId);
-    }'''
-        if (!text.contains(oldBlock)) {
-            throw new GradleException('No encontré currentMediaUri para cambiar a VOLUME_EXTERNAL_PRIMARY')
-        }
-        src.write(text.replace(oldBlock, newBlock), 'UTF-8')
-    }
-}
-
-afterEvaluate {
-    tasks.named('preBuild').configure {
-        dependsOn patchPrimaryVolume
     }
 }
 
