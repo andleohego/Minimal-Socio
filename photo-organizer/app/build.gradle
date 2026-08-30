@@ -6,12 +6,27 @@ android {
     namespace 'cl.andres.ordenafotos'
     compileSdk 35
 
+    signingConfigs {
+        stableDebug {
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     defaultConfig {
         applicationId 'cl.andres.ordenafotos'
         minSdk 29
         targetSdk 35
         versionCode 4
         versionName '1.2.1'
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.stableDebug
+        }
     }
 
     compileOptions {
