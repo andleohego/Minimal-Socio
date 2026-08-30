@@ -28,11 +28,22 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: ordenafotos-signing-key-v1
+      - name: Ensure stable signing key
+        run: |
+          mkdir -p ~/.android
+          if [ ! -s ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          test -s ~/.android/debug.keystore
       - name: Build APK
         working-directory: photo-organizer
         run: gradle --no-daemon assembleDebug
-      - name: Verify signing key exists
-        run: test -s ~/.android/debug.keystore
       - name: Rename APK
         run: cp photo-organizer/app/build/outputs/apk/debug/app-debug.apk OrdenaFotos-Socio-v1.2-estable.apk
       - uses: actions/upload-artifact@v4
