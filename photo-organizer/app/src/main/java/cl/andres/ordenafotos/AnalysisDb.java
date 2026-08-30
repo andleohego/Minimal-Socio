@@ -15,7 +15,7 @@ import java.util.Set;
 
 public class AnalysisDb extends SQLiteOpenHelper {
     private static final String DB_NAME = "ordenafotos.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public AnalysisDb(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -43,14 +43,19 @@ public class AnalysisDb extends SQLiteOpenHelper {
     private void createCleanupTable(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS cleanup_verified (" +
                 "media_id INTEGER PRIMARY KEY," +
+                "copy_id INTEGER NOT NULL," +
                 "bytes INTEGER NOT NULL," +
+                "sha256 TEXT NOT NULL," +
                 "verified_at INTEGER NOT NULL" +
                 ")");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        if (oldVersion < 2) createCleanupTable(db);
+        if (oldVersion < 3) {
+            db.execSQL("DROP TABLE IF EXISTS cleanup_verified");
+            createCleanupTable(db);
+        }
     }
 
     public synchronized void save(ResultRow row) {
@@ -140,10 +145,6 @@ public class AnalysisDb extends SQLiteOpenHelper {
         getWritableDatabase().update("results", v, "media_id=?", new String[]{Long.toString(mediaId)});
     }
 
-    /**
-     * Reconciles rows with MediaStore after an older version already moved photos.
-     * Returns how many rows were actually removed from the pending queue.
-     */
     public synchronized int markOrganizedIds(List<Long> mediaIds) {
         if (mediaIds == null || mediaIds.isEmpty()) return 0;
         SQLiteDatabase database = getWritableDatabase();
@@ -154,11 +155,8 @@ public class AnalysisDb extends SQLiteOpenHelper {
         try {
             for (Long id : mediaIds) {
                 if (id == null) continue;
-                changed += database.update(
-                        "results", v,
-                        "media_id=? AND selected=1",
-                        new String[]{Long.toString(id)}
-                );
+                changed += database.update("results", v, "media_id=? AND selected=1",
+                        new String[]{Long.toString(id)});
             }
             database.setTransactionSuccessful();
         } finally {
@@ -171,10 +169,12 @@ public class AnalysisDb extends SQLiteOpenHelper {
         getWritableDatabase().delete("cleanup_verified", null, null);
     }
 
-    public synchronized void addCleanupVerified(long mediaId, long bytes) {
+    public synchronized void addCleanupVerified(long mediaId, long copyId, long bytes, String sha256) {
         ContentValues v = new ContentValues();
         v.put("media_id", mediaId);
+        v.put("copy_id", copyId);
         v.put("bytes", Math.max(0L, bytes));
+        v.put("sha256", sha256 == null ? "" : sha256);
         v.put("verified_at", System.currentTimeMillis());
         getWritableDatabase().insertWithOnConflict("cleanup_verified", null, v, SQLiteDatabase.CONFLICT_REPLACE);
     }
@@ -194,8 +194,8 @@ public class AnalysisDb extends SQLiteOpenHelper {
     public synchronized List<CleanupVerified> cleanupVerifiedRows() {
         ArrayList<CleanupVerified> out = new ArrayList<>();
         try (Cursor c = getReadableDatabase().rawQuery(
-                "SELECT media_id,bytes FROM cleanup_verified ORDER BY media_id", null)) {
-            while (c.moveToNext()) out.add(new CleanupVerified(c.getLong(0), c.getLong(1)));
+                "SELECT media_id,copy_id,bytes,sha256 FROM cleanup_verified ORDER BY media_id", null)) {
+            while (c.moveToNext()) out.add(new CleanupVerified(c.getLong(0), c.getLong(1), c.getLong(2), c.getString(3)));
         }
         return out;
     }
@@ -230,10 +230,14 @@ public class AnalysisDb extends SQLiteOpenHelper {
 
     public static class CleanupVerified {
         public final long mediaId;
+        public final long copyId;
         public final long bytes;
-        public CleanupVerified(long mediaId, long bytes) {
+        public final String sha256;
+        public CleanupVerified(long mediaId, long copyId, long bytes, String sha256) {
             this.mediaId = mediaId;
+            this.copyId = copyId;
             this.bytes = bytes;
+            this.sha256 = sha256 == null ? "" : sha256;
         }
     }
 
