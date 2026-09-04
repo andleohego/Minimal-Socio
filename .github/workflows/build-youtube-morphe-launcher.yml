@@ -1,0 +1,145 @@
+name: Build YouTube Morphe Launcher
+
+on:
+  push:
+    branches: [youtube-morphe-launcher]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create Android TV launcher project
+        shell: bash
+        run: |
+          rm -rf morphe-launcher
+          mkdir -p morphe-launcher/app/src/main/java/cl/andres/morphelauncher
+          mkdir -p morphe-launcher/app/src/main/res/values
+          mkdir -p morphe-launcher/app/src/main/res/drawable
+
+          cat > morphe-launcher/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name='YouTubeMorpheLauncher'
+          include ':app'
+          EOF
+
+          cat > morphe-launcher/build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.7.3' apply false }
+          EOF
+
+          cat > morphe-launcher/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          EOF
+
+          cat > morphe-launcher/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'cl.andres.morphelauncher'
+            compileSdk 35
+            defaultConfig {
+              applicationId 'cl.andres.morphelauncher'
+              minSdk 21
+              targetSdk 35
+              versionCode 1
+              versionName '1.0'
+            }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+            }
+          }
+          EOF
+
+          cat > morphe-launcher/app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+            <string name="app_name">YouTube Morphe</string>
+            <string name="missing">YouTube Morphe no está instalado</string>
+          </resources>
+          EOF
+
+          cat > morphe-launcher/app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+            <style name="AppTheme" parent="android:style/Theme.Translucent.NoTitleBar">
+              <item name="android:windowIsTranslucent">true</item>
+              <item name="android:windowBackground">@android:color/transparent</item>
+            </style>
+          </resources>
+          EOF
+
+          cat > morphe-launcher/app/src/main/res/drawable/app_icon.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#E62117" android:pathData="M12,20h84a12,12 0,0 1,12 12v44a12,12 0,0 1,-12 12h-84a12,12 0,0 1,-12 -12v-44a12,12 0,0 1,12 -12z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M44,36L74,54L44,72z"/>
+          </vector>
+          EOF
+
+          cat > morphe-launcher/app/src/main/res/drawable/tv_banner.xml <<'EOF'
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+            <item><shape android:shape="rectangle"><solid android:color="#E62117"/><corners android:radius="8dp"/></shape></item>
+          </layer-list>
+          EOF
+
+          cat > morphe-launcher/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-feature android:name="android.software.leanback" android:required="true"/>
+            <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+            <queries><package android:name="app.morphe.android.youtube"/></queries>
+            <application android:allowBackup="false" android:banner="@drawable/tv_banner" android:icon="@drawable/app_icon" android:label="@string/app_name" android:theme="@style/AppTheme">
+              <activity android:name=".MainActivity" android:exported="true" android:excludeFromRecents="true" android:noHistory="true" android:screenOrientation="landscape">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+                </intent-filter>
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat > morphe-launcher/app/src/main/java/cl/andres/morphelauncher/MainActivity.java <<'EOF'
+          package cl.andres.morphelauncher;
+          import android.app.Activity;
+          import android.content.ComponentName;
+          import android.content.Intent;
+          import android.os.Bundle;
+          import android.widget.Toast;
+
+          public class MainActivity extends Activity {
+            @Override protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              try {
+                Intent i = new Intent(Intent.ACTION_MAIN);
+                i.setComponent(new ComponentName("app.morphe.android.youtube", "app.morphe.android.youtube.morphe_black_1"));
+                i.addCategory(Intent.CATEGORY_LAUNCHER);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                startActivity(i);
+              } catch (Exception e) {
+                Toast.makeText(this, R.string.missing, Toast.LENGTH_LONG).show();
+              }
+              finish();
+            }
+          }
+          EOF
+      - name: Build APK
+        working-directory: morphe-launcher
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Prepare artifact
+        run: cp morphe-launcher/app/build/outputs/apk/debug/app-debug.apk YouTube_Morphe_Home.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YouTube-Morphe-Home-APK
+          path: YouTube_Morphe_Home.apk
